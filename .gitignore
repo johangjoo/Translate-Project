@@ -1,0 +1,9 @@
+# mp4 무시
+*.mp4
+
+# video_input 폴더 전체 무시
+video_input/
+/video_input/
+.venv/
+venv/
+env/
