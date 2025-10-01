@@ -3,6 +3,8 @@ import os, argparse, pathlib
 from pathlib import Path
 import torch, whisperx
 from whisperx.diarize import DiarizationPipeline
+import huggingface_hub
+huggingface_hub.login("hf_")
 
 # Windows 전용: PyTorch DLL 경로 우선
 try:
@@ -109,9 +111,9 @@ def main():
         or os.getenv("HUGGINGFACE_TOKEN")
         or os.getenv("HF_TOKEN")
     )
-    assert token and token.startswith("hf_"), "HF 토큰 필요. 게이트드 레포 동의 포함."
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # GPU cuDNN 문제 우회를 위해 CPU 사용
+    device = "cpu"  # "cuda" if torch.cuda.is_available() else "cpu"
     gpu_name = torch.cuda.get_device_name(0) if device == "cuda" else ""
     is_blackwell = device == "cuda" and looks_blackwell(gpu_name)
 
