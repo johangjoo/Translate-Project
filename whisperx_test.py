@@ -92,8 +92,18 @@ def process_one(fp: Path, out_dir: Path, model, diar_pipe, device: str, batch: i
     return out_path
 
 def main():
-    ap = argparse.ArgumentParser(description="WhisperX + diarization 배치")
-    ap.add_argument("--src", default="video_input", help="mp4 파일 또는 폴더")
+    ap = argparse.ArgumentParser(
+        description="WhisperX + diarization 배치 처리 (다양한 오디오 형식 지원)",
+        epilog="""
+사용 예시:
+  python whisperx_test.py --src audio_folder                    # 폴더의 모든 오디오 파일 처리
+  python whisperx_test.py --src my_audio.wav                    # 단일 WAV 파일 처리
+  python whisperx_test.py --src audio_folder --ext "*.mp3"      # MP3 파일만 처리
+  python whisperx_test.py --src audio_folder --ext "*.wav"      # WAV 파일만 처리
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument("--src", default="video_input", help="오디오/비디오 파일 또는 폴더 (mp4, wav, mp3, flac, m4a, aac, ogg 지원)")
     ap.add_argument("--out_dir", default="input", help="출력 폴더")
     ap.add_argument("--whisper_model", default="large-v3", help="Whisper 모델명")
     ap.add_argument("--batch_size", type=int, default=8)
@@ -102,7 +112,7 @@ def main():
     ap.add_argument("--hf_token", default=None, help="Hugging Face read 토큰")
     ap.add_argument("--force_cpu_diar", action="store_true", help="화자분리만 CPU 강제")
     ap.add_argument("--compute_type", default=None, help='CUDA: float16|bfloat16|float32|int8_float16 등')
-    ap.add_argument("--ext", default="*.mp4", help="검색 확장자 패턴 (예: *.mp4)")
+    ap.add_argument("--ext", default="*.mp4", help="검색 확장자 패턴 (예: *.mp4, *.wav, *.mp3)")
     args = ap.parse_args()
 
     token = (
@@ -137,8 +147,28 @@ def main():
 
     # 입력 수집
     src_path = Path(args.src)
-    files = [src_path] if src_path.is_file() else sorted(src_path.glob(args.ext))
-    assert files, f"{src_path}에서 {args.ext}를 찾지 못함."
+    
+    if src_path.is_file():
+        files = [src_path]
+    else:
+        # 여러 오디오 형식 지원
+        audio_extensions = ["*.mp4", "*.wav", "*.mp3", "*.flac", "*.m4a", "*.aac", "*.ogg"]
+        files = []
+        
+        if args.ext != "*.mp4":  # 사용자가 특정 확장자를 지정한 경우
+            files = sorted(src_path.glob(args.ext))
+        else:  # 기본값인 경우 모든 오디오 형식 검색
+            for ext in audio_extensions:
+                files.extend(src_path.glob(ext))
+            files = sorted(set(files))  # 중복 제거 및 정렬
+    
+    assert files, f"{src_path}에서 오디오 파일을 찾지 못함. 지원 형식: {', '.join(audio_extensions)}"
+    
+    # 찾은 파일들 표시
+    print(f"\n📁 처리할 파일 {len(files)}개:")
+    for i, fp in enumerate(files, 1):
+        print(f"  {i}. {fp.name} ({fp.suffix.upper()})")
+    print()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
