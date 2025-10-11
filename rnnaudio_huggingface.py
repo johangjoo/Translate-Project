@@ -56,51 +56,74 @@ class HuggingFaceDenoiser:
         
         Args:
             model_type (str): "spectral_mask" 또는 "sepformer"
-            use_gpu (bool): GPU 사용 여부
+                - spectral_mask: VoiceBank-DEMAND 데이터셋으로 훈련된 일반적인 노이즈 제거 모델
+                - sepformer: WHAM! 데이터셋으로 훈련된 고급 음성 분리 모델
+            use_gpu (bool): GPU 사용 여부 (CUDA 가속)
         """
+        # 모델 타입 저장 (허깅페이스에서 다운로드할 모델 결정)
         self.model_type = model_type
+        
+        # 디바이스 설정: GPU 사용 시 "cuda", CPU 사용 시 "cpu"
         self.device = "cuda" if use_gpu else "cpu"
+        
+        # 모델 객체 초기화 (로딩 실패 시 None으로 유지)
         self.model = None
         
-        # 권한 문제 해결 시도
+        # Windows 권한 문제 해결 시도 (심볼릭 링크 생성 권한 필요)
         print("권한 확인 중...")
         if not check_admin_rights():
             print("⚠️  관리자 권한이 없습니다. 대안 방법을 시도합니다...")
         
+        # 허깅페이스 모델 로딩 시도
         try:
-            self._load_model()
+            self._load_model()  # 실제 모델 다운로드 및 로딩
         except Exception as e:
             print(f"모델 로딩 실패: {str(e)}")
             print("기본 오디오 처리 방법을 사용합니다.")
-            self.model = None
+            self.model = None  # 로딩 실패 시 fallback 처리 준비
     
     def _load_model(self):
-        """모델 로딩 (권한 문제 처리 포함)"""
+        """
+        허깅페이스에서 사전 훈련된 모델을 다운로드하고 로딩합니다.
+        권한 문제를 우회하기 위해 사용자 홈 디렉토리를 사용합니다.
+        """
         import tempfile
         import os
         
-        # 사용자 홈 디렉토리에 모델 저장 시도
-        home_dir = os.path.expanduser("~")
+        # 사용자 홈 디렉토리에 모델 캐시 저장 (~/.speechbrain_models/)
+        # 시스템 디렉토리 권한 문제를 피하기 위한 방법
+        home_dir = os.path.expanduser("~")  # Windows: C:\Users\사용자명
         model_dir = os.path.join(home_dir, "speechbrain_models", self.model_type)
         
-        # 디렉토리 생성
+        # 모델 저장 디렉토리 생성 (없으면 자동 생성)
         os.makedirs(model_dir, exist_ok=True)
         
         if self.model_type == "spectral_mask":
-            # 환경 변수 설정으로 권한 문제 우회
+            # === VoiceBank-DEMAND 데이터셋으로 훈련된 SpectralMask 모델 ===
+            # 환경 변수로 SpeechBrain 캐시 경로 지정 (권한 문제 우회)
             os.environ['SPEECHBRAIN_CACHE'] = model_dir
+            
+            # 허깅페이스에서 모델 다운로드 및 로딩
+            # source: 허깅페이스 모델 ID (speechbrain/mtl-mimic-voicebank)
+            # savedir: 로컬 저장 경로
+            # run_opts: 실행 옵션 (GPU/CPU 설정)
             self.model = SpectralMaskEnhancement.from_hparams(
-                source="speechbrain/mtl-mimic-voicebank",
-                savedir=model_dir,
-                run_opts={"device": self.device}
+                source="speechbrain/mtl-mimic-voicebank",  # VoiceBank-DEMAND 훈련 모델
+                savedir=model_dir,                         # 로컬 캐시 경로
+                run_opts={"device": self.device}           # 디바이스 설정
             )
+            
         elif self.model_type == "sepformer":
+            # === WHAM! 데이터셋으로 훈련된 SepFormer 모델 ===
             os.environ['SPEECHBRAIN_CACHE'] = model_dir
             run_opts = {"device": self.device}
+            
+            # SepFormer: 더 고급 음성 분리 및 향상 모델
+            # WHAM! (WSJ0 Hipster Ambient Mixtures) 데이터셋으로 훈련됨
             self.model = separator.from_hparams(
-                source="speechbrain/sepformer-wham-enhancement",
-                savedir=model_dir,
-                run_opts=run_opts
+                source="speechbrain/sepformer-wham-enhancement",  # WHAM! 훈련 모델
+                savedir=model_dir,                                # 로컬 캐시 경로
+                run_opts=run_opts                                 # 디바이스 설정
             )
         else:
             raise ValueError("model_type은 'spectral_mask' 또는 'sepformer'여야 합니다.")
