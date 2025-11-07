@@ -1,0 +1,63 @@
+qwen3-8b-lora-10ratio/
+qwen3-8b-translation-lora/
+soundToText/
+models/
+
+# 데이터 폴더
+inputs/
+outputs/
+uploads/
+json_data/
+tmp_diar/
+train.jsonl
+validation.jsonl
+training_data.jsonl
+
+# 스크립트 (필요 없는 것들)
+TranslateScript/
+model_download.py
+tstt.py
+
+# 압축 파일
+*.zip
+
+# 백업 파일
+*.backup
+*.backup_*
+train.jsonl.backup_*
+validation.jsonl.backup_*
+training_data.jsonl.backup_*
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# 가상환경
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 환경 변수
+.env
