@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Translation - 음성 번역 도구</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 헤더 -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-microphone-alt"></i>
+                    <h1>Audio Translation</h1>
+                </div>
+                <div class="server-status" id="serverStatus">
+                    <div class="status-indicator" id="statusIndicator"></div>
+                    <span id="statusText">서버 연결 확인 중...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- 메인 컨텐츠 -->
+        <main class="main-content">
+            <!-- 서버 설정 패널 -->
+            <div class="panel server-panel">
+                <h2><i class="fas fa-server"></i> 서버 설정</h2>
+                <div class="input-group">
+                    <label for="serverUrl">FastAPI 서버 URL:</label>
+                    <input type="text" id="serverUrl" value="http://127.0.0.1:8000" placeholder="http://localhost:8000">
+                    <button id="checkServerBtn" class="btn btn-secondary">
+                        <i class="fas fa-check-circle"></i> 연결 확인
+                    </button>
+                </div>
+            </div>
+
+            <!-- 파일 선택 패널 -->
+            <div class="panel file-panel">
+                <h2><i class="fas fa-file-audio"></i> 파일 선택</h2>
+                <div class="file-input-area">
+                    <div class="file-drop-zone" id="fileDropZone">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <p>오디오/비디오 파일을 드래그하거나 클릭하여 선택하세요</p>
+                        <p class="file-types">지원 형식: MP3, WAV, MP4, AVI, MOV, MKV 등</p>
+                        <button id="selectFileBtn" class="btn btn-primary">
+                            <i class="fas fa-folder-open"></i> 파일 선택
+                        </button>
+                    </div>
+                    <div class="selected-file" id="selectedFile" style="display: none;">
+                        <div class="file-info">
+                            <i class="fas fa-file"></i>
+                            <div class="file-details">
+                                <span class="file-name" id="fileName"></span>
+                                <span class="file-path" id="filePath"></span>
+                            </div>
+                            <button id="removeFileBtn" class="btn btn-danger btn-small">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 변환 및 처리 패널 -->
+            <div class="panel processing-panel">
+                <h2><i class="fas fa-cogs"></i> 처리 옵션</h2>
+                
+                <!-- 처리 모드 선택 -->
+                <div class="processing-modes">
+                    <div class="mode-selector">
+                        <input type="radio" id="sttOnly" name="processingMode" value="transcribe" checked>
+                        <label for="sttOnly">
+                            <i class="fas fa-microphone"></i>
+                            <span>음성 인식만</span>
+                            <small>오디오를 텍스트로 변환</small>
+                        </label>
+                    </div>
+                    <div class="mode-selector">
+                        <input type="radio" id="fullPipeline" name="processingMode" value="audio-to-translation">
+                        <label for="fullPipeline">
+                            <i class="fas fa-language"></i>
+                            <span>음성 인식 + 번역</span>
+                            <small>오디오를 텍스트로 변환 후 번역</small>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 번역 설정 (풀 파이프라인 모드일 때만 표시) -->
+                <div class="translation-settings" id="translationSettings" style="display: none;">
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="sourceLang">원본 언어:</label>
+                            <select id="sourceLang">
+                                <option value="auto">자동 감지</option>
+                                <option value="ko">한국어</option>
+                                <option value="ja">일본어</option>
+                                <option value="en">영어</option>
+                                <option value="zh">중국어</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="targetLang">번역 언어:</label>
+                            <select id="targetLang">
+                                <option value="ko">한국어</option>
+                                <option value="ja">일본어</option>
+                                <option value="en">영어</option>
+                                <option value="zh">중국어</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 처리 시작 버튼 -->
+                <div class="action-buttons">
+                    <button id="processBtn" class="btn btn-success btn-large" disabled>
+                        <i class="fas fa-play"></i>
+                        <span>처리 시작</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 진행률 패널 -->
+            <div class="panel progress-panel" id="progressPanel" style="display: none;">
+                <h2><i class="fas fa-tasks"></i> 처리 진행률</h2>
+                
+                <!-- 변환 진행률 -->
+                <div class="progress-section">
+                    <div class="progress-header">
+                        <span class="progress-title">1. 오디오 변환 (WAV)</span>
+                        <span class="progress-status" id="conversionStatus">대기 중</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="conversionProgress"></div>
+                    </div>
+                    <div class="progress-details" id="conversionDetails"></div>
+                </div>
+
+                <!-- 업로드 진행률 -->
+                <div class="progress-section">
+                    <div class="progress-header">
+                        <span class="progress-title">2. 서버 업로드</span>
+                        <span class="progress-status" id="uploadStatus">대기 중</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="uploadProgress"></div>
+                    </div>
+                </div>
+
+                <!-- 처리 진행률 -->
+                <div class="progress-section">
+                    <div class="progress-header">
+                        <span class="progress-title">3. AI 처리</span>
+                        <span class="progress-status" id="processingStatus">대기 중</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="aiProgress"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 결과 패널 -->
+            <div class="panel results-panel" id="resultsPanel" style="display: none;">
+                <h2><i class="fas fa-clipboard-list"></i> 처리 결과</h2>
+                
+                <!-- STT 결과 -->
+                <div class="result-section">
+                    <div class="result-header">
+                        <h3><i class="fas fa-microphone"></i> 음성 인식 결과</h3>
+                        <div class="result-meta">
+                            <span class="detected-lang" id="detectedLang"></span>
+                            <span class="processing-time" id="sttTime"></span>
+                        </div>
+                    </div>
+                    <div class="result-content">
+                        <textarea id="sttResult" readonly placeholder="음성 인식 결과가 여기에 표시됩니다..."></textarea>
+                        <button class="copy-btn" onclick="copyToClipboard('sttResult')">
+                            <i class="fas fa-copy"></i> 복사
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 번역 결과 (풀 파이프라인 모드일 때만 표시) -->
+                <div class="result-section" id="translationResult" style="display: none;">
+                    <div class="result-header">
+                        <h3><i class="fas fa-language"></i> 번역 결과</h3>
+                        <div class="result-meta">
+                            <span class="translation-info" id="translationInfo"></span>
+                            <span class="processing-time" id="translationTime"></span>
+                        </div>
+                    </div>
+                    <div class="result-content">
+                        <textarea id="translatedResult" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
+                        <button class="copy-btn" onclick="copyToClipboard('translatedResult')">
+                            <i class="fas fa-copy"></i> 복사
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 액션 버튼들 -->
+                <div class="result-actions">
+                    <button id="newProcessBtn" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> 새 파일 처리
+                    </button>
+                    <button id="saveResultBtn" class="btn btn-secondary">
+                        <i class="fas fa-save"></i> 결과 저장
+                    </button>
+                </div>
+            </div>
+
+            <!-- 텍스트 번역 패널 -->
+            <div class="panel text-translation-panel">
+                <h2><i class="fas fa-language"></i> 텍스트 번역</h2>
+                <div class="text-translation-content">
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="textSourceLang">원본 언어:</label>
+                            <select id="textSourceLang">
+                                <option value="ko">한국어</option>
+                                <option value="ja">일본어</option>
+                                <option value="en">영어</option>
+                                <option value="zh">중국어</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="textTargetLang">번역 언어:</label>
+                            <select id="textTargetLang">
+                                <option value="ja">일본어</option>
+                                <option value="ko">한국어</option>
+                                <option value="en">영어</option>
+                                <option value="zh">중국어</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-areas">
+                        <div class="text-input-section">
+                            <label for="inputText">번역할 텍스트:</label>
+                            <textarea id="inputText" placeholder="번역할 텍스트를 입력하세요..."></textarea>
+                        </div>
+                        <div class="text-output-section">
+                            <label for="outputText">번역 결과:</label>
+                            <textarea id="outputText" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
+                            <button class="copy-btn" onclick="copyToClipboard('outputText')">
+                                <i class="fas fa-copy"></i> 복사
+                            </button>
+                        </div>
+                    </div>
+                    <button id="translateTextBtn" class="btn btn-primary">
+                        <i class="fas fa-language"></i> 번역하기
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- 푸터 -->
+        <footer class="app-footer">
+            <div class="footer-content">
+                <span>Audio Translation v1.0.0 - Powered by Whisper & Qwen3</span>
+                <div class="footer-links">
+                    <a href="#" onclick="showAbout()">정보</a>
+                    <a href="#" onclick="showHelp()">도움말</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- 로딩 오버레이 -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p id="loadingText">처리 중...</p>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 -->
+    <div class="toast" id="toast"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
