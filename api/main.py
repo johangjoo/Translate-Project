@@ -52,17 +52,17 @@ async def startup_event():
     print(f"📂 프로젝트 루트: {PROJECT_ROOT}\n")
     
     # 1. STT 모델 로딩
-    print("🎤 [1/2] Whisper STT 모델 로딩...")
+    print("🎤 [1/3] Whisper STT 모델 로딩...")
     initialize_stt_models(
-        whisper_model_size="medium",  # tiny, base, small, medium, large
-        language=None,  # 자동 감지
-        use_denoiser=False  # 속도 우선
+        whisper_model_size="medium",
+        language=None,
+        use_denoiser=False
     )
     print()
     
     # 2. 번역 모델 로딩
-    print("🌐 [2/2] Qwen3 번역 모델 로딩...")
-    model_path = PROJECT_ROOT / "qwen3-8b-lora-10ratio/qwen3-8b-lora-10ratio"  # ✅ 맞음!  # ✅ 경로 중복 제거!
+    print("🌐 [2/3] Qwen3 번역 모델 로딩...")
+    model_path = PROJECT_ROOT / "qwen3-8b-lora-10ratio/qwen3-8b-lora-10ratio"
     
     if not model_path.exists():
         print(f"⚠️  경고: 모델 경로가 존재하지 않습니다: {model_path}")
@@ -76,19 +76,29 @@ async def startup_event():
     )
     print()
     
+    # 3. 오디오 파이프라인 초기화 (새로 추가!)
+    print("🎵 [3/3] 오디오 파이프라인 로딩...")
+    from api import audio_pipeline
+    audio_pipeline.initialize_audio_pipeline(
+        use_gpu=True,
+        whisper_model_size="large-v3",
+        load_denoiser=True,
+        load_speaker_encoder=True
+    )
+    print()
+    
     print("="*70)
     print("✅ 모든 모델 로딩 완료!")
     print()
-    print("📡 서버 실행 중: http://0.0.0.0:8000")
-    print("📚 API 문서: http://0.0.0.0:8000/docs")
+    print("📡 서버 실행 중: http://127.0.0.0:8000")
+    print("📚 API 문서: http://127.0.0.0:8000/docs")
     print()
     print("🎯 사용 가능한 기능:")
     print("   ✓ STT만             → /api/v1/transcribe")
     print("   ✓ 번역만             → /api/v1/translate-text")
-    print("   ✓ STT + 번역 (풀)    → /api/v1/audio-to-translation")
+    print("   ✓ 오디오 파이프라인  → /api/audio/process")  # 새로 추가
     print("   ✓ 상태 확인          → /api/v1/health")
     print("="*70 + "\n")
-
 
 @app.get("/")
 def root():
@@ -110,3 +120,5 @@ def root():
             "docs": "/docs"
         }
     }
+
+ 

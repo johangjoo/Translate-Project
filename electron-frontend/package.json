@@ -1,12 +1,17 @@
 {
   "name": "audio-translation-frontend",
   "version": "1.0.0",
-  "description": "Electron frontend for Audio Translation API with FFmpeg integration",
+  "description": "Electron frontend for Audio Translation API with bundled FFmpeg",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "postinstall": "node scripts/download-ffmpeg.js",
+    "prebuild": "node scripts/download-ffmpeg.js",
     "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"
   },
@@ -27,7 +32,8 @@
   "dependencies": {
     "axios": "^1.5.0",
     "form-data": "^4.0.0",
-    "fluent-ffmpeg": "^2.1.2"
+    "fluent-ffmpeg": "^2.1.2",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0"
   },
   "build": {
     "appId": "com.example.audio-translation",
@@ -39,19 +45,54 @@
       "**/*",
       "!node_modules",
       "!dist",
-      "!*.log"
+      "!temp",
+      "!scripts",
+      "!*.log",
+      "!.git"
+    ],
+    "extraResources": [
+      {
+        "from": "ffmpeg",
+        "to": "ffmpeg",
+        "filter": ["**/*"]
+      }
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    },
     "mac": {
-      "target": "dmg",
-      "icon": "assets/icon.icns"
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.productivity"
     },
     "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon.png"
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Audio;AudioVideo"
     }
   }
 }

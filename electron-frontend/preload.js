@@ -8,8 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 저장 위치 선택
   selectSaveLocation: () => ipcRenderer.invoke('select-save-location'),
   
-  // 오디오 변환
-  convertToWav: (inputPath, outputPath) => ipcRenderer.invoke('convert-to-wav', inputPath, outputPath),
+  // ✅ 오디오 변환 (outputPath 파라미터 제거)
+  convertToWav: (inputPath) => ipcRenderer.invoke('convert-to-wav', inputPath),
   
   // API 서버에 파일 전송
   sendToAPI: (filePath, endpoint, serverUrl) => ipcRenderer.invoke('send-to-api', filePath, endpoint, serverUrl),
@@ -36,4 +36,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);
   }
-});
+}
+);

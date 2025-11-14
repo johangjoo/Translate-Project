@@ -18,6 +18,9 @@ TranslateScript/
 model_download.py
 tstt.py
 
+# ffmpeg파일
+electron-frontend/ffmpeg/
+
 # 압축 파일
 *.zip
 

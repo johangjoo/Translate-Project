@@ -2,6 +2,7 @@
 let selectedFilePath = null;
 let convertedWavPath = null;
 let tempFiles = [];
+let sttResultData = null; // ✅ STT 결과 저장용
 
 // DOM 요소들
 const elements = {
@@ -195,7 +196,7 @@ function updateProcessButton() {
     elements.processBtn.disabled = !selectedFilePath;
 }
 
-// 처리 시작
+// ✅ 처리 시작 (수정됨 - STT와 번역 분리)
 async function startProcessing() {
     if (!selectedFilePath) {
         showToast('먼저 파일을 선택해주세요.', 'warning');
@@ -210,67 +211,91 @@ async function startProcessing() {
         elements.processBtn.disabled = true;
         elements.progressPanel.style.display = 'block';
         elements.resultsPanel.style.display = 'none';
+        sttResultData = null;
         
-        // 1단계: 오디오 변환
+        // 1단계: 오디오 변환 (WAV)
+        console.log('📀 1단계: 오디오 변환 시작...');
         await convertAudioToWav();
         
-        // 2단계: API 서버에 전송
-        await sendToAPI(processingMode, serverUrl);
+        // 2단계: STT
+        console.log('🎤 2단계: 음성 인식 시작...');
+        await sendToSTT(serverUrl);
+        
+        // 3단계: 번역 (필요시)
+        if (processingMode === 'audio-to-translation') {
+            console.log('🌐 3단계: 번역 시작...');
+            await translateSTTResult(serverUrl);
+        } else {
+            showToast('음성 인식이 완료되었습니다!', 'success');
+        }
         
     } catch (error) {
+        console.error('❌ 처리 오류:', error);
         showToast(`처리 오류: ${error.message}`, 'error');
         resetProcessingState();
     }
 }
 
-// 오디오를 WAV로 변환
+// ✅ 오디오를 WAV로 변환 (수정됨 - require('os') 제거)
 async function convertAudioToWav() {
     return new Promise(async (resolve, reject) => {
         try {
             elements.conversionStatus.textContent = '변환 중...';
             
-            // 임시 출력 파일 경로 생성
-            const timestamp = Date.now();
-            const tempDir = require('os').tmpdir();
-            convertedWavPath = `${tempDir}\\audio_${timestamp}.wav`;
-            tempFiles.push(convertedWavPath);
-            
-            const result = await window.electronAPI.convertToWav(selectedFilePath, convertedWavPath);
+            // ✅ Main process에서 경로 생성 및 변환 수행
+            const result = await window.electronAPI.convertToWav(selectedFilePath);
             
             if (result.success) {
+                convertedWavPath = result.outputPath;  // ✅ Main에서 받은 경로 사용
+                tempFiles.push(convertedWavPath);
                 elements.conversionStatus.textContent = '변환 완료';
+                elements.conversionProgress.style.width = '100%';
+                console.log('✅ WAV 변환 완료:', convertedWavPath);
                 resolve();
             } else {
-                throw new Error(result.error);
+                throw new Error(result.error || '변환 실패');
             }
         } catch (error) {
             elements.conversionStatus.textContent = '변환 실패';
+            elements.conversionDetails.textContent = `오류: ${error.message}`;
+            console.error('❌ 변환 오류:', error);
             reject(error);
         }
     });
 }
 
-// API 서버에 전송
-async function sendToAPI(processingMode, serverUrl) {
+// ✅ STT 수행 (새로 추가)
+async function sendToSTT(serverUrl) {
     try {
         elements.uploadStatus.textContent = '업로드 중...';
-        elements.processingStatus.textContent = '처리 중...';
+        elements.processingStatus.textContent = 'AI 처리 중...';
+        elements.aiProgress.style.width = '50%';
         
-        const result = await window.electronAPI.sendToAPI(convertedWavPath, processingMode, serverUrl);
+        // FastAPI의 /audio/process 엔드포인트 호출
+        const result = await window.electronAPI.sendToAPI(
+            convertedWavPath, 
+            'audio/process',  // ✅ FastAPI 엔드포인트
+            serverUrl
+        );
         
         if (result.success) {
             elements.uploadStatus.textContent = '업로드 완료';
-            elements.processingStatus.textContent = '처리 완료';
+            elements.processingStatus.textContent = 'AI 처리 완료';
             elements.aiProgress.style.width = '100%';
             
-            displayResults(result.data, processingMode);
-            showToast('처리가 완료되었습니다!', 'success');
+            // ✅ STT 결과 저장
+            sttResultData = result.data;
+            console.log('✅ STT 완료:', sttResultData);
+            
+            displaySTTResult(sttResultData);
+            
         } else {
             throw new Error(result.error);
         }
     } catch (error) {
         elements.uploadStatus.textContent = '업로드 실패';
-        elements.processingStatus.textContent = '처리 실패';
+        elements.processingStatus.textContent = 'AI 처리 실패';
+        console.error('❌ STT 오류:', error);
         throw error;
     } finally {
         // 임시 파일 정리
@@ -278,7 +303,42 @@ async function sendToAPI(processingMode, serverUrl) {
             window.electronAPI.cleanupTempFiles(tempFiles);
             tempFiles = [];
         }
+    }
+}
+
+// ✅ STT 결과를 번역 (새로 추가)
+async function translateSTTResult(serverUrl) {
+    try {
+        if (!sttResultData || !sttResultData.text) {
+            throw new Error('STT 결과가 없습니다.');
+        }
         
+        const sourceLang = elements.sourceLang.value;
+        const targetLang = elements.targetLang.value;
+        
+        elements.processingStatus.textContent = '번역 중...';
+        console.log(`🌐 번역 시작: ${sourceLang} → ${targetLang}`);
+        
+        const result = await window.electronAPI.translateText(
+            sttResultData.text,
+            sourceLang,
+            targetLang,
+            serverUrl
+        );
+        
+        if (result.success) {
+            elements.processingStatus.textContent = '번역 완료';
+            console.log('✅ 번역 완료:', result.data);
+            displayTranslationResult(result.data);
+            showToast('음성 인식과 번역이 완료되었습니다!', 'success');
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        elements.processingStatus.textContent = '번역 실패';
+        console.error('❌ 번역 오류:', error);
+        throw error;
+    } finally {
         resetProcessingState();
     }
 }
@@ -309,39 +369,47 @@ function updateUploadProgress(progress) {
     elements.uploadStatus.textContent = `업로드 중... ${progress.percent || 0}%`;
 }
 
-// 결과 표시
-function displayResults(data, processingMode) {
+// ✅ STT 결과 표시 (새로 추가)
+function displaySTTResult(data) {
     elements.resultsPanel.style.display = 'block';
     
-    // STT 결과
-    if (data.text || data.transcribed_text) {
-        const transcribedText = data.text || data.transcribed_text;
-        elements.sttResult.value = transcribedText;
-        
-        if (data.language || data.detected_language) {
-            const detectedLang = data.language || data.detected_language;
-            elements.detectedLang.textContent = `감지된 언어: ${detectedLang}`;
-        }
-        
-        if (data.processing_time) {
-            elements.sttTime.textContent = `처리 시간: ${data.processing_time.toFixed(2)}초`;
-        }
+    // STT 텍스트
+    if (data.text) {
+        elements.sttResult.value = data.text;
+        console.log('📝 STT 텍스트:', data.text);
     }
     
-    // 번역 결과 (풀 파이프라인 모드인 경우)
-    if (processingMode === 'audio-to-translation' && data.translated_text) {
-        elements.translationResult.style.display = 'block';
+    // 감지된 언어
+    if (data.detected_language) {
+        elements.detectedLang.textContent = `감지된 언어: ${data.detected_language}`;
+    }
+    
+    // 처리 시간
+    if (data.transcription_time !== undefined) {
+        elements.sttTime.textContent = `처리 시간: ${data.transcription_time}초`;
+    } else if (data.processing_time !== undefined) {
+        elements.sttTime.textContent = `처리 시간: ${data.processing_time}초`;
+    }
+}
+
+// ✅ 번역 결과 표시 (새로 추가)
+function displayTranslationResult(data) {
+    elements.translationResult.style.display = 'block';
+    
+    // 번역 텍스트
+    if (data.translated_text) {
         elements.translatedResult.value = data.translated_text;
-        
-        if (data.target_language) {
-            elements.translationInfo.textContent = `번역 언어: ${data.target_language}`;
-        }
-        
-        if (data.translation_time) {
-            elements.translationTime.textContent = `번역 시간: ${data.translation_time.toFixed(2)}초`;
-        }
-    } else {
-        elements.translationResult.style.display = 'none';
+        console.log('🌐 번역 텍스트:', data.translated_text);
+    }
+    
+    // 목표 언어
+    if (data.target_lang) {
+        elements.translationInfo.textContent = `번역 언어: ${data.target_lang}`;
+    }
+    
+    // 처리 시간
+    if (data.processing_time !== undefined) {
+        elements.translationTime.textContent = `번역 시간: ${data.processing_time}초`;
     }
 }
 
@@ -363,7 +431,9 @@ function resetForNewFile() {
     removeFile();
     elements.progressPanel.style.display = 'none';
     elements.resultsPanel.style.display = 'none';
+    elements.translationResult.style.display = 'none';
     resetProcessingState();
+    sttResultData = null;
 }
 
 // 결과 저장
