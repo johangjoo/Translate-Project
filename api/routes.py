@@ -126,7 +126,8 @@ async def process_audio(
     enable_diarization: bool = Form(True, description="화자분리 활성화"),
     language: Optional[str] = Form(None, description="언어 코드 (None=자동감지)"),
     create_srt: bool = Form(True, description="SRT 자막 파일 생성"),
-    save_outputs: bool = Form(True, description="결과 파일 저장")
+    save_outputs: bool = Form(True, description="결과 파일 저장"),
+    max_speakers: int = Form(2, description="최대 화자 수 (1~10)")
 ):
     """
     🎵 통합 오디오 처리 파이프라인
@@ -150,6 +151,15 @@ async def process_audio(
             status_code=503,
             detail="오디오 파이프라인이 초기화되지 않았습니다."
         )
+
+    # 최대 화자 수 설정 (1~10 범위로 클램프)
+    try:
+        if max_speakers is not None:
+            clamped = max(1, min(10, int(max_speakers)))
+            pipeline.max_speakers = clamped
+    except Exception:
+        # 잘못된 값이 들어와도 기본값(2)을 유지
+        pass
     
     temp_path = None
     total_start = time.time()

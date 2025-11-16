@@ -73,6 +73,9 @@ class AudioPipeline:
         self.pyannote_auth_token = os.getenv("PYANNOTE_AUTH_TOKEN", None)
         self.use_whisperx_diarization = True
         
+        # 최대 화자 수 설정 (1~10 범위에서 사용)
+        self.max_speakers = 5
+
         # 폴더 경로 설정
         self.audio_input_dir = Path("audio_input")
         self.audio_out_dir = Path("audio_out") 
@@ -271,7 +274,7 @@ class AudioPipeline:
             logger.error(f"노이즈 제거 실패 ({input_file}): {e}")
             raise
     
-    def transcribe_audio(self, audio_file, output_text_file, srt_file=None):
+    def transcribe_audio(self, audio_file, output_text_file, srt_file=None, diarization_audio_file=None):
         """
         오디오 파일을 텍스트로 변환 (STT)
         
@@ -279,6 +282,7 @@ class AudioPipeline:
             audio_file (str): 오디오 파일 경로
             output_text_file (str): 출력 텍스트 파일 경로
             srt_file (str, optional): SRT 자막 파일 경로
+            diarization_audio_file (str, optional): 화자분리용 오디오 파일 경로
         """
         try:
             logger.info(f"STT 처리 시작: {audio_file}")
@@ -309,12 +313,14 @@ class AudioPipeline:
             
             # 간단한 타임스탬프+화자 정보 파일 생성
             simple_file = Path(output_text_file).parent / f"{Path(output_text_file).stem}_simple.txt"
-            self._save_simple_transcript(simple_file, result, audio_file)
+            diarization_source = diarization_audio_file or audio_file
+            self._save_simple_transcript(simple_file, result, diarization_source)
             logger.info(f"간단한 전사 파일 생성: {simple_file}")
             
             # SRT 자막 파일 생성 (요청된 경우)
             if srt_file:
-                self._save_srt_file(srt_file, result, audio_file)
+                diarization_source = diarization_audio_file or audio_file
+                self._save_srt_file(srt_file, result, diarization_source)
                 logger.info(f"SRT 자막 파일 생성: {srt_file}")
             
             logger.info(f"STT 처리 완료: {output_text_file}")
@@ -579,8 +585,67 @@ class AudioPipeline:
 
         from collections import Counter
         logger.info(f"WhisperX 기반 화자 분포: {dict(Counter(speaker_assignments))}")
+        speaker_assignments = self._smooth_whisperx_speakers(segments, speaker_assignments)
 
         return speaker_assignments
+    
+    def _smooth_whisperx_speakers(self, segments, speaker_assignments):
+        try:
+            from collections import Counter
+
+            if not segments or not speaker_assignments:
+                return speaker_assignments
+
+            n = len(segments)
+            assignments = list(speaker_assignments)
+
+            for i, (seg, spk) in enumerate(zip(segments, assignments)):
+                start = float(seg.get("start", 0.0))
+                end = float(seg.get("end", start))
+                duration = max(0.0, end - start)
+
+                prev_spk = assignments[i - 1] if i > 0 else None
+                next_spk = assignments[i + 1] if i < n - 1 else None
+
+                if (
+                    duration < 0.7
+                    and prev_spk is not None
+                    and next_spk is not None
+                    and prev_spk == next_spk
+                    and spk != prev_spk
+                ):
+                    assignments[i] = prev_spk
+
+            counts = Counter(assignments)
+            total = sum(counts.values())
+
+            if total == 0:
+                return assignments
+
+            main_speakers = {s for s, c in counts.items() if c / total >= 0.15}
+
+            if not main_speakers:
+                return assignments
+
+            for i, spk in enumerate(assignments):
+                ratio = counts[spk] / total
+                if ratio >= 0.05:
+                    continue
+
+                neighbors = []
+                if i > 0:
+                    neighbors.append(assignments[i - 1])
+                if i < n - 1:
+                    neighbors.append(assignments[i + 1])
+
+                candidates = [s for s in neighbors if s in main_speakers]
+                if candidates:
+                    assignments[i] = candidates[0]
+
+            return assignments
+
+        except Exception:
+            return speaker_assignments
     
     def _voice_feature_based_assignment(self, audio_file, segments):
         """음성 특성(주파수, 피치, 스펙트럼) 기반 화자 분리 + 독백 처리"""
@@ -946,7 +1011,6 @@ class AudioPipeline:
             
             logger.debug(f"간단한 음성 특성 추출: 주파수={dominant_freq:.1f}Hz, 에너지={rms_energy:.3f}")
             return features
-            
         except Exception as e:
             logger.error(f"간단한 음성 특성 추출 실패: {e}")
             return None
@@ -957,13 +1021,13 @@ class AudioPipeline:
             import numpy as np
             from sklearn.cluster import KMeans
             from sklearn.preprocessing import StandardScaler
-            
+
             features_array = np.array(voice_features)
-            
+
             # 특성 정규화
             scaler = StandardScaler()
             features_normalized = scaler.fit_transform(features_array)
-            
+
             # 최적 클러스터 수 결정 - 더 보수적으로 설정
             n_segments = len(voice_features)
             if n_segments <= 2:
@@ -973,332 +1037,200 @@ class AudioPipeline:
             elif n_segments <= 7:
                 n_clusters = min(2, n_segments - 1)  # 최대 2명
             else:
-                n_clusters = min(3, n_segments // 2)  # 최대 3명
-            
+                n_clusters = min(3, n_segments // 2)  # 기본 최대 3명
+
+            # 전역 설정에 따른 상한 적용 (1~max_speakers)
+            max_speakers = getattr(self, "max_speakers", None)
+            if max_speakers is not None and max_speakers > 0:
+                n_clusters = max(1, min(n_clusters, int(max_speakers)))
+
             if n_clusters == 1:
                 logger.info("단일 화자로 클러스터링")
                 return [0] * len(voice_features)
-            
+
             # K-means 클러스터링 (여러 번 시도해서 최적 결과 선택)
             best_labels = None
             best_inertia = float('inf')
-            
+
             for attempt in range(5):  # 5번 시도
                 try:
-                    kmeans = KMeans(n_clusters=n_clusters, random_state=42+attempt, n_init=10)
+                    kmeans = KMeans(n_clusters=n_clusters, random_state=42 + attempt, n_init=10)
                     labels = kmeans.fit_predict(features_normalized)
-                    
+
                     if kmeans.inertia_ < best_inertia:
                         best_inertia = kmeans.inertia_
                         best_labels = labels
                         best_centers = kmeans.cluster_centers_
-                except:
+                except Exception:
                     continue
-            
+
             if best_labels is None:
                 logger.warning("클러스터링 실패 - 단일 화자로 처리")
                 return [0] * len(voice_features)
-            
+
             logger.info(f"음성 특성 클러스터링 완료: {n_clusters}명 화자 감지 (관성: {best_inertia:.2f})")
-            
+
             # 클러스터 품질 검증
             unique_labels = len(set(best_labels))
             if unique_labels < n_clusters:
                 logger.warning(f"일부 클러스터가 비어있음: {unique_labels}/{n_clusters}")
-            
-            # 클러스터 중심점 정보 로깅
+
+            # 클러스터 중심점 정보 로깅 (간단 요약)
             for i, center in enumerate(best_centers):
-                logger.debug(f"화자{chr(65+i)} 특성: F0={center[0]:.1f}, MFCC1={center[2]:.2f}")
-            
+                logger.debug(f"화자{chr(65 + i)} 특성 요약: F0={center[0]:.1f}, MFCC1={center[2]:.2f}")
+
             return best_labels
-            
+
         except ImportError:
             logger.warning("scikit-learn이 설치되지 않아 간단한 분류 사용")
             return self._simple_voice_clustering(voice_features)
         except Exception as e:
             logger.error(f"음성 특성 클러스터링 실패: {e}")
             return [0] * len(voice_features)  # 모두 같은 화자로 처리
-    
+
     def _simple_voice_clustering(self, voice_features):
-        """간단한 음성 특성 기반 분류"""
+        """간단한 음성 특성 기반 분류 (scikit-learn 미사용 시)"""
         try:
             import numpy as np
-            
+
             features_array = np.array(voice_features)
-            
-            # 첫 번째 특성 (피치 또는 주파수)을 기준으로 분류
+
+            # 첫 번째 특성(예: 피치)을 기준으로 2그룹 분할
             first_feature = features_array[:, 0]
-            
-            # 중앙값을 기준으로 2그룹 분할
             median_value = np.median(first_feature)
             labels = (first_feature > median_value).astype(int)
-            
+
             logger.info(f"간단한 음성 분류 완료: 기준값={median_value:.2f}")
             return labels
-            
+
         except Exception as e:
             logger.error(f"간단한 음성 분류 실패: {e}")
             return [0] * len(voice_features)
-    
+
     def _assign_speakers_from_clusters(self, segments, valid_segments, speaker_labels):
         """클러스터링 결과를 전체 세그먼트에 할당"""
         speaker_assignments = []
         label_to_speaker = {}
-        
+
         # 라벨을 화자 이름으로 매핑
         unique_labels = sorted(set(speaker_labels))
         for i, label in enumerate(unique_labels):
             speaker_letter = chr(ord('A') + i)
             label_to_speaker[label] = f"화자{speaker_letter}"
-        
+
         # 유효한 세그먼트의 인덱스와 라벨 매핑
         valid_assignments = {}
-        for (seg_idx, segment), label in zip(valid_segments, speaker_labels):
+        for (seg_idx, _segment), label in zip(valid_segments, speaker_labels):
             valid_assignments[seg_idx] = label_to_speaker[label]
-        
-        # 전체 세그먼트에 화자 할당
+
+        # 전체 세그먼트에 화자 할당 (앞에서 정한 화자 유지)
         current_speaker = "화자A"
-        for i, segment in enumerate(segments):
+        for i, _segment in enumerate(segments):
             if i in valid_assignments:
                 current_speaker = valid_assignments[i]
-            
             speaker_assignments.append(current_speaker)
-        
+
         # 화자 일관성 후처리
-        speaker_assignments = self._post_process_voice_consistency(speaker_assignments, valid_segments, speaker_labels)
-        
-        # 결과 로깅
+        speaker_assignments = self._post_process_voice_consistency(
+            speaker_assignments, valid_segments, speaker_labels
+        )
+
         from collections import Counter
         speaker_count = Counter(speaker_assignments)
         logger.info(f"음성 특성 기반 화자 분포: {dict(speaker_count)}")
-        
+
         return speaker_assignments
-    
+
     def _post_process_voice_consistency(self, speaker_assignments, valid_segments, speaker_labels):
         """음성 특성 기반 화자 일관성 후처리"""
         try:
             from collections import Counter
-            import numpy as np
-            
+
             logger.info("음성 특성 기반 일관성 후처리 시작...")
-            
-            # 화자별 세그먼트 수 확인
+
             speaker_counts = Counter(speaker_assignments)
             logger.info(f"후처리 전 화자 분포: {dict(speaker_counts)}")
-            
-            # 화자분리 품질 확인 - 너무 적극적인 통합 방지
-            total_speakers = len(speaker_counts)
-            if total_speakers <= 2:
-                logger.info(f"화자 수가 적절함 ({total_speakers}명) - 후처리 건너뛰기")
-                return speaker_assignments
-            
-            # 단일 세그먼트만 가진 화자들 찾기 (더 신중하게)
-            isolated_speakers = [speaker for speaker, count in speaker_counts.items() if count == 1]
-            
+
+            # 화자 수가 이미 적으면(<= max_speakers) 보수적으로 유지
+            max_speakers = getattr(self, "max_speakers", None)
+            if max_speakers is not None and max_speakers > 0:
+                if len(speaker_counts) <= max_speakers:
+                    logger.info("화자 수가 설정 상한 이내 - 후처리 최소화")
+                    return speaker_assignments
+
+            # 고립된 화자(세그먼트 1개만 가진 화자)만 조심스럽게 통합
+            isolated_speakers = [s for s, c in speaker_counts.items() if c == 1]
             if not isolated_speakers:
                 logger.info("고립된 화자 없음 - 후처리 완료")
                 return speaker_assignments
-            
-            logger.info(f"고립된 화자 발견: {isolated_speakers}")
-            
-            # 고립된 화자 통합 - 더 신중한 조건
-            assignments = speaker_assignments.copy()
-            
-            for isolated_speaker in isolated_speakers:
-                isolated_index = speaker_assignments.index(isolated_speaker)
-                
-                # 앞뒤 화자 확인
-                prev_speaker = None
-                next_speaker = None
-                
-                if isolated_index > 0:
-                    prev_speaker = assignments[isolated_index - 1]
-                if isolated_index < len(assignments) - 1:
-                    next_speaker = assignments[isolated_index + 1]
-                
-                # 통합 대상 결정 - 더 엄격한 조건
-                target_speaker = None
-                
-                # 1. 앞뒤가 정확히 같은 화자이고, 그 화자가 3개 이상 세그먼트를 가진 경우만 통합
-                if (prev_speaker and prev_speaker == next_speaker and 
-                    speaker_counts[prev_speaker] >= 3):
-                    target_speaker = prev_speaker
-                    logger.info(f"고립된 화자 {isolated_speaker} → {target_speaker} (앞뒤 동일, 주요화자)")
-                
-                # 2. 다른 경우는 통합하지 않음 (화자 다양성 보존)
-                else:
-                    logger.info(f"고립된 화자 {isolated_speaker} 유지 (화자 다양성 보존)")
-                
-                # 통합 실행
-                if target_speaker:
-                    assignments[isolated_index] = target_speaker
-            
-            # 최종 결과 로깅
+
+            assignments = list(speaker_assignments)
+
+            for isolated in isolated_speakers:
+                idx = assignments.index(isolated)
+                prev_spk = assignments[idx - 1] if idx > 0 else None
+                next_spk = assignments[idx + 1] if idx < len(assignments) - 1 else None
+
+                target = None
+                if prev_spk is not None and prev_spk == next_spk and speaker_counts[prev_spk] >= 3:
+                    target = prev_spk
+
+                if target:
+                    logger.info(f"고립된 화자 {isolated} → {target} 로 통합")
+                    assignments[idx] = target
+
             final_counts = Counter(assignments)
             logger.info(f"후처리 후 화자 분포: {dict(final_counts)}")
-            
             return assignments
-            
+
         except Exception as e:
             logger.error(f"음성 특성 일관성 후처리 실패: {e}")
             return speaker_assignments
-    
+
     def _fallback_speaker_assignment(self, segments):
         """음성 특성 추출 실패 시 대안 로직"""
         logger.info("대안 화자 할당 로직 사용")
-        
-        # 1.5초 이상 침묵 기준으로 간단 분리
+
+        # 1.5초 이상 침묵 기준으로 간단 분리 (A/B 번갈아 가며)
         speaker_assignments = []
         current_speaker = 'A'
-        
+
         for i, segment in enumerate(segments):
             if i > 0:
-                prev_end = segments[i-1].get("end", 0)
+                prev_end = segments[i - 1].get("end", 0)
                 curr_start = segment.get("start", 0)
                 silence_duration = curr_start - prev_end
-                
+
                 if silence_duration > 1.5:
                     current_speaker = 'B' if current_speaker == 'A' else 'A'
-            
+
             speaker_assignments.append(f"화자{current_speaker}")
-        
+
         return speaker_assignments
-    
+
     def _is_single_speaker(self, segments):
         """간단한 단일 화자 판단 로직"""
         if len(segments) <= 2:
             logger.info("세그먼트 2개 이하 - 단일 화자로 판단")
             return True
-        
-        # 1.5초 이상 침묵이 있는지만 확인
+
         long_silence_count = 0
-        
         for i in range(1, len(segments)):
-            prev_end = segments[i-1].get("end", 0)
+            prev_end = segments[i - 1].get("end", 0)
             curr_start = segments[i].get("start", 0)
             silence_duration = curr_start - prev_end
-            
+
             if silence_duration > 1.5:
                 long_silence_count += 1
-        
-        # 긴 침묵이 없으면 단일 화자
+
         is_single = long_silence_count == 0
-        
-        logger.info(f"단일 화자 판단: {'단일' if is_single else '다중'} "
-                   f"(1.5초+ 침묵: {long_silence_count}회, 세그먼트: {len(segments)}개)")
-        
+        logger.info(
+            f"단일 화자 판단: {'단일' if is_single else '다중'} "
+            f"(1.5초+ 침묵: {long_silence_count}회, 세그먼트: {len(segments)}개)"
+        )
+
         return is_single
-    
-    def _extract_speaker_embeddings(self, audio_file, segments):
-        """ECAPA-VOXCELEB를 사용하여 세그먼트별 화자 임베딩 추출"""
-        if not self._load_speaker_encoder():
-            logger.warning("화자분리 모델을 사용할 수 없어 규칙 기반 방식을 사용합니다")
-            return None
-        
-        try:
-            # 오디오 파일 로드
-            waveform, sample_rate = torchaudio.load(audio_file)
-            
-            # 모노 채널로 변환
-            if waveform.shape[0] > 1:
-                waveform = torch.mean(waveform, dim=0, keepdim=True)
-            
-            # 16kHz로 리샘플링 (ECAPA 모델 요구사항)
-            if sample_rate != 16000:
-                resampler = torchaudio.transforms.Resample(sample_rate, 16000)
-                waveform = resampler(waveform)
-                sample_rate = 16000
-            
-            embeddings = []
-            valid_segments = []
-            
-            for segment in segments:
-                start_time = segment.get("start", 0)
-                end_time = segment.get("end", start_time + 1)
-                text = segment.get("text", "").strip()
-                
-                if not text or end_time <= start_time:
-                    continue
-                
-                # 세그먼트 오디오 추출
-                start_sample = int(start_time * sample_rate)
-                end_sample = int(end_time * sample_rate)
-                
-                if start_sample >= waveform.shape[1] or end_sample <= start_sample:
-                    continue
-                
-                segment_audio = waveform[:, start_sample:end_sample]
-                
-                # 너무 짧은 세그먼트는 건너뛰기 (최소 0.5초)
-                if segment_audio.shape[1] < sample_rate * 0.5:
-                    continue
-                
-                # 화자 임베딩 추출
-                try:
-                    embedding = self.speaker_encoder.encode_batch(segment_audio.to(self.device))
-                    embeddings.append(embedding.squeeze().cpu().numpy())
-                    valid_segments.append(segment)
-                except Exception as e:
-                    logger.warning(f"세그먼트 임베딩 추출 실패: {e}")
-                    continue
-            
-            if not embeddings:
-                logger.warning("유효한 화자 임베딩을 추출할 수 없습니다")
-                return None
-            
-            return np.array(embeddings), valid_segments
-            
-        except Exception as e:
-            logger.error(f"화자 임베딩 추출 실패: {e}")
-            return None
-    
-    def _cluster_speakers(self, embeddings, min_speakers=2, max_speakers=5):
-        """화자 임베딩을 클러스터링하여 화자 구분"""
-        try:
-            # 코사인 유사도 계산
-            similarity_matrix = cosine_similarity(embeddings)
-            
-            # 거리 행렬로 변환 (1 - 유사도)
-            distance_matrix = 1 - similarity_matrix
-            
-            # 최적의 클러스터 수 결정
-            best_n_clusters = min_speakers
-            best_score = -1
-            
-            for n_clusters in range(min_speakers, min(max_speakers + 1, len(embeddings) + 1)):
-                try:
-                    clustering = AgglomerativeClustering(
-                        n_clusters=n_clusters,
-                        metric='precomputed',
-                        linkage='average'
-                    )
-                    labels = clustering.fit_predict(distance_matrix)
-                    
-                    # 실루엣 스코어 계산 (간단한 평가)
-                    if len(set(labels)) > 1:
-                        from sklearn.metrics import silhouette_score
-                        score = silhouette_score(distance_matrix, labels, metric='precomputed')
-                        if score > best_score:
-                            best_score = score
-                            best_n_clusters = n_clusters
-                except:
-                    continue
-            
-            # 최종 클러스터링
-            clustering = AgglomerativeClustering(
-                n_clusters=best_n_clusters,
-                metric='precomputed',
-                linkage='average'
-            )
-            labels = clustering.fit_predict(distance_matrix)
-            
-            logger.info(f"화자 클러스터링 완료: {best_n_clusters}명의 화자 감지")
-            return labels
-            
-        except Exception as e:
-            logger.error(f"화자 클러스터링 실패: {e}")
-            return None
-    
+
     def _assign_ecapa_speakers(self, audio_file, segments):
         """ECAPA-VOXCELEB 기반 실제 화자분리"""
         # 화자 임베딩 추출
@@ -1382,10 +1314,15 @@ class AudioPipeline:
             import shutil
             shutil.copy2(denoised_file, output_audio_file)
             
-            # 3단계: STT 처리
+            # 3단계: STT 처리 (denoised 오디오 사용, 화자분리는 원본 오디오 사용)
             transcript_file = self.script_output_dir / f"{file_stem}_transcript.txt"
             srt_file = self.script_output_dir / f"{file_stem}_subtitle.srt"
-            transcribed_text = self.transcribe_audio(output_audio_file, transcript_file, srt_file)
+            transcribed_text = self.transcribe_audio(
+                str(output_audio_file),
+                str(transcript_file),
+                str(srt_file),
+                diarization_audio_file=str(audio_file)
+            )
             
             logger.info(f"파일 처리 완료: {input_file}")
             return transcribed_text
@@ -1427,12 +1364,17 @@ class AudioPipeline:
             logger.info(f"[backend] 업로드 WAV 노이즈 제거 시작: {wav_path} -> {denoised_file}")
             self.denoise_audio(str(wav_path), str(denoised_file))
 
-            # 2단계: STT + 화자분리 (기존 transcribe_audio 재사용)
+            # 2단계: STT + 화자분리 (STT는 denoised, 화자분리는 원본 wav 사용)
             transcript_file = base_dir / f"{file_stem}_transcript.txt"
             srt_file = base_dir / f"{file_stem}_subtitle.srt" if create_srt else None
 
             logger.info(f"[backend] 업로드 WAV STT 처리 시작: {denoised_file}")
-            text = self.transcribe_audio(str(denoised_file), str(transcript_file), str(srt_file) if srt_file else None)
+            text = self.transcribe_audio(
+                str(denoised_file),
+                str(transcript_file),
+                str(srt_file) if srt_file else None,
+                diarization_audio_file=str(wav_path)
+            )
 
             # transcribe_audio 내부에서 simple 텍스트도 생성됨
             simple_file = base_dir / f"{file_stem}_transcript_simple.txt"

@@ -23,6 +23,7 @@ const elements = {
     translationSettings: document.getElementById('translationSettings'),
     sourceLang: document.getElementById('sourceLang'),
     targetLang: document.getElementById('targetLang'),
+    maxSpeakers: document.getElementById('maxSpeakers'),
     processBtn: document.getElementById('processBtn'),
     
     progressPanel: document.getElementById('progressPanel'),
@@ -263,10 +264,15 @@ async function sendToSTT(serverUrl) {
         elements.aiProgress.style.width = '50%';
         
         // FastAPI의 /audio/process 엔드포인트 호출
+        const maxSpeakers = elements.maxSpeakers
+            ? Number(elements.maxSpeakers.value || 2)
+            : 2;
+
         const result = await window.electronAPI.sendToAPI(
-            convertedWavPath, 
+            convertedWavPath,
             'audio/process',  // FastAPI 엔드포인트
-            serverUrl
+            serverUrl,
+            { maxSpeakers }
         );
         
         if (result.success) {
