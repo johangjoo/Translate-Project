@@ -504,6 +504,7 @@ class AudioPipeline:
                     delattr(self, '_current_audio_file')
                 else:
                     speaker_assignments = self._assign_smart_speakers(result["segments"])
+                speaker_assignments = self._relabel_speakers_for_output(result["segments"], speaker_assignments)
                 
                 subtitle_index = 1
                 for i, segment in enumerate(result["segments"]):
@@ -560,6 +561,7 @@ class AudioPipeline:
                 else:
                     logger.info("대안 화자 할당 사용...")
                     speaker_assignments = self._assign_smart_speakers(result["segments"])
+                speaker_assignments = self._relabel_speakers_for_output(result["segments"], speaker_assignments)
                 
                 for i, segment in enumerate(result["segments"]):
                     start_time = self._format_time(segment["start"])
@@ -577,6 +579,38 @@ class AudioPipeline:
                 # 세그먼트 정보가 없는 경우
                 f.write(f"[00:00.000] 화자A: {result['text'].strip()}\n")
     
+    def _relabel_speakers_for_output(self, segments, speaker_assignments):
+        try:
+            if not segments or not speaker_assignments:
+                return speaker_assignments
+
+            if len(segments) != len(speaker_assignments):
+                return speaker_assignments
+
+            speaker_map = {}
+            next_index = 0
+
+            for seg, spk in zip(segments, speaker_assignments):
+                text = seg.get("text", "")
+                if not text or not text.strip():
+                    continue
+                if spk not in speaker_map:
+                    speaker_map[spk] = f"화자{chr(ord('A') + next_index)}"
+                    next_index += 1
+
+            if not speaker_map:
+                return speaker_assignments
+
+            new_assignments = []
+            for spk in speaker_assignments:
+                mapped = speaker_map.get(spk, spk)
+                new_assignments.append(mapped)
+
+            return new_assignments
+
+        except Exception:
+            return speaker_assignments
+
     def _assign_smart_speakers(self, segments):
         """화자 분리: WhisperX + pyannote를 우선 사용, 실패 시 기존 음성 특성/규칙 기반 사용"""
         if not segments:
