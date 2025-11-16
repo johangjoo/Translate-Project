@@ -6,6 +6,8 @@
 - librosa: 고급 음성 특성 추출 (pip install librosa)
 - scikit-learn: 클러스터링 (pip install scikit-learn)
 - numpy: 기본 수치 연산 (pip install numpy)
+- soundfile: 임시 WAV 파일 저장 (pip install soundfile)
+- tempfile: 임시 파일 생성 (pip install tempfile)
 """
 
 import os
@@ -13,6 +15,7 @@ import sys
 import glob
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 import torch
@@ -290,7 +293,7 @@ class AudioPipeline:
             # Whisper 모델 로드
             self._load_whisper()
             
-            # 음성 인식 수행 (단어별 타임스탬프 포함)
+            # 음성 인식 옵션 (단어별 타임스탬프 포함)
             transcribe_options = {
                 "word_timestamps": True,
                 "verbose": True
@@ -303,8 +306,112 @@ class AudioPipeline:
             else:
                 logger.info("언어 자동 감지로 STT 처리")
             
-            result = self.whisper_model.transcribe(str(audio_file), **transcribe_options)
+            # 긴 오디오는 내부적으로 chunk 단위로 나누어 처리
+            total_duration = None
+            sample_rate = None
+            num_frames = None
+            try:
+                info = torchaudio.info(audio_file)
+                sample_rate = info.sample_rate
+                num_frames = info.num_frames
+                if sample_rate and num_frames:
+                    total_duration = num_frames / float(sample_rate)
+            except Exception as e:
+                logger.warning(f"오디오 메타데이터 확인 실패, 단일 파일로 처리합니다: {e}")
             
+            # chunk 기준 (초 단위, 10분)
+            chunk_duration = 600.0
+            
+            if total_duration is None or total_duration <= chunk_duration:
+                # 기존 방식: 전체 파일을 한 번에 처리
+                result = self.whisper_model.transcribe(str(audio_file), **transcribe_options)
+            else:
+                logger.info(
+                    f"긴 오디오 감지 ({total_duration/60.0:.1f}분) - "
+                    f"{chunk_duration/60.0:.0f}분 단위 chunk로 분할 처리"
+                )
+
+                merged_segments = []
+                text_parts = []
+                chunk_results = []
+
+                # 샘플 기준 chunk 크기
+                chunk_samples = int(chunk_duration * sample_rate)
+                offset_sec = 0.0
+
+                start_frame = 0
+                while start_frame < num_frames:
+                    remaining = num_frames - start_frame
+                    this_frames = min(chunk_samples, remaining)
+
+                    logger.info(
+                        f"chunk STT 처리: start_frame={start_frame}, "
+                        f"frames={this_frames}, offset={offset_sec:.2f}s"
+                    )
+
+                    # 해당 chunk만 로드
+                    waveform, sr = torchaudio.load(audio_file, frame_offset=start_frame, num_frames=this_frames)
+
+                    # 모노 변환
+                    if waveform.shape[0] > 1:
+                        waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+                    # numpy로 변환하여 임시 wav 파일로 저장 후 Whisper 호출
+                    audio_np = waveform.squeeze(0).numpy()
+
+                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+                        tmp_path = tmp_wav.name
+                    try:
+                        sf.write(tmp_path, audio_np, sr)
+                        chunk_result = self.whisper_model.transcribe(tmp_path, **transcribe_options)
+                    finally:
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+
+                    chunk_results.append(chunk_result)
+
+                    # 텍스트 누적
+                    chunk_text = chunk_result.get("text", "").strip()
+                    if chunk_text:
+                        text_parts.append(chunk_text)
+
+                    # 세그먼트 타임스탬프에 offset 적용 후 병합
+                    if "segments" in chunk_result:
+                        for seg in chunk_result["segments"]:
+                            seg_copy = dict(seg)
+                            seg_copy["start"] = float(seg_copy.get("start", 0.0)) + offset_sec
+                            seg_copy["end"] = float(seg_copy.get("end", seg_copy.get("start", 0.0))) + offset_sec
+
+                            if "words" in seg_copy:
+                                words = []
+                                for w in seg_copy["words"]:
+                                    w_copy = dict(w)
+                                    w_copy["start"] = float(w_copy.get("start", 0.0)) + offset_sec
+                                    w_copy["end"] = float(w_copy.get("end", w_copy.get("start", 0.0))) + offset_sec
+                                    words.append(w_copy)
+                                seg_copy["words"] = words
+
+                            merged_segments.append(seg_copy)
+
+                    # 다음 chunk로 이동
+                    start_frame += this_frames
+                    offset_sec += this_frames / float(sample_rate)
+
+                if not chunk_results:
+                    raise RuntimeError("chunk STT 결과가 비어 있습니다.")
+
+                merged_text = " ".join(text_parts).strip()
+                merged_language = chunk_results[0].get("language", "unknown")
+
+                result = {
+                    "text": merged_text,
+                    "segments": merged_segments,
+                    "language": merged_language,
+                    "duration": total_duration or (offset_sec if offset_sec > 0 else None),
+                }
+
             # 결과 텍스트 추출
             transcribed_text = result["text"].strip()
             
