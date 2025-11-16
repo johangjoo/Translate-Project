@@ -45,12 +45,6 @@ const elements = {
     newProcessBtn: document.getElementById('newProcessBtn'),
     saveResultBtn: document.getElementById('saveResultBtn'),
     
-    textSourceLang: document.getElementById('textSourceLang'),
-    textTargetLang: document.getElementById('textTargetLang'),
-    inputText: document.getElementById('inputText'),
-    outputText: document.getElementById('outputText'),
-    translateTextBtn: document.getElementById('translateTextBtn'),
-    
     loadingOverlay: document.getElementById('loadingOverlay'),
     loadingText: document.getElementById('loadingText'),
     toast: document.getElementById('toast')
@@ -100,9 +94,6 @@ function setupEventListeners() {
     
     // 결과 저장
     elements.saveResultBtn.addEventListener('click', saveResults);
-    
-    // 텍스트 번역
-    elements.translateTextBtn.addEventListener('click', translateText);
     
     // 진행률 이벤트 리스너
     window.electronAPI.onConversionProgress((progress) => {
@@ -196,7 +187,7 @@ function updateProcessButton() {
     elements.processBtn.disabled = !selectedFilePath;
 }
 
-// ✅ 처리 시작 (수정됨 - STT와 번역 분리)
+// 처리 시작 (수정됨 - STT와 번역 분리)
 async function startProcessing() {
     if (!selectedFilePath) {
         showToast('먼저 파일을 선택해주세요.', 'warning');
@@ -214,43 +205,43 @@ async function startProcessing() {
         sttResultData = null;
         
         // 1단계: 오디오 변환 (WAV)
-        console.log('📀 1단계: 오디오 변환 시작...');
+        console.log(' 1단계: 오디오 변환 시작...');
         await convertAudioToWav();
         
         // 2단계: STT
-        console.log('🎤 2단계: 음성 인식 시작...');
+        console.log(' 2단계: 음성 인식 시작...');
         await sendToSTT(serverUrl);
         
         // 3단계: 번역 (필요시)
         if (processingMode === 'audio-to-translation') {
-            console.log('🌐 3단계: 번역 시작...');
+            console.log(' 3단계: 번역 시작...');
             await translateSTTResult(serverUrl);
         } else {
             showToast('음성 인식이 완료되었습니다!', 'success');
         }
         
     } catch (error) {
-        console.error('❌ 처리 오류:', error);
+        console.error(' 처리 오류:', error);
         showToast(`처리 오류: ${error.message}`, 'error');
         resetProcessingState();
     }
 }
 
-// ✅ 오디오를 WAV로 변환 (수정됨 - require('os') 제거)
+// 오디오를 WAV로 변환 (수정됨 - require('os') 제거)
 async function convertAudioToWav() {
     return new Promise(async (resolve, reject) => {
         try {
             elements.conversionStatus.textContent = '변환 중...';
             
-            // ✅ Main process에서 경로 생성 및 변환 수행
+            // Main process에서 경로 생성 및 변환 수행
             const result = await window.electronAPI.convertToWav(selectedFilePath);
             
             if (result.success) {
-                convertedWavPath = result.outputPath;  // ✅ Main에서 받은 경로 사용
+                convertedWavPath = result.outputPath;  // Main에서 받은 경로 사용
                 tempFiles.push(convertedWavPath);
                 elements.conversionStatus.textContent = '변환 완료';
                 elements.conversionProgress.style.width = '100%';
-                console.log('✅ WAV 변환 완료:', convertedWavPath);
+                console.log(' WAV 변환 완료:', convertedWavPath);
                 resolve();
             } else {
                 throw new Error(result.error || '변환 실패');
@@ -258,13 +249,13 @@ async function convertAudioToWav() {
         } catch (error) {
             elements.conversionStatus.textContent = '변환 실패';
             elements.conversionDetails.textContent = `오류: ${error.message}`;
-            console.error('❌ 변환 오류:', error);
+            console.error(' 변환 오류:', error);
             reject(error);
         }
     });
 }
 
-// ✅ STT 수행 (새로 추가)
+// STT 수행 (새로 추가)
 async function sendToSTT(serverUrl) {
     try {
         elements.uploadStatus.textContent = '업로드 중...';
@@ -274,7 +265,7 @@ async function sendToSTT(serverUrl) {
         // FastAPI의 /audio/process 엔드포인트 호출
         const result = await window.electronAPI.sendToAPI(
             convertedWavPath, 
-            'audio/process',  // ✅ FastAPI 엔드포인트
+            'audio/process',  // FastAPI 엔드포인트
             serverUrl
         );
         
@@ -283,9 +274,9 @@ async function sendToSTT(serverUrl) {
             elements.processingStatus.textContent = 'AI 처리 완료';
             elements.aiProgress.style.width = '100%';
             
-            // ✅ STT 결과 저장
+            // STT 결과 저장
             sttResultData = result.data;
-            console.log('✅ STT 완료:', sttResultData);
+            console.log(' STT 완료:', sttResultData);
             
             displaySTTResult(sttResultData);
             
@@ -295,7 +286,7 @@ async function sendToSTT(serverUrl) {
     } catch (error) {
         elements.uploadStatus.textContent = '업로드 실패';
         elements.processingStatus.textContent = 'AI 처리 실패';
-        console.error('❌ STT 오류:', error);
+        console.error(' STT 오류:', error);
         throw error;
     } finally {
         // 임시 파일 정리
@@ -306,7 +297,7 @@ async function sendToSTT(serverUrl) {
     }
 }
 
-// ✅ STT 결과를 번역 (새로 추가)
+// STT 결과를 번역 (새로 추가)
 async function translateSTTResult(serverUrl) {
     try {
         if (!sttResultData || !sttResultData.text) {
@@ -317,7 +308,7 @@ async function translateSTTResult(serverUrl) {
         const targetLang = elements.targetLang.value;
         
         elements.processingStatus.textContent = '번역 중...';
-        console.log(`🌐 번역 시작: ${sourceLang} → ${targetLang}`);
+        console.log(` 번역 시작: ${sourceLang} → ${targetLang}`);
         
         const result = await window.electronAPI.translateText(
             sttResultData.text,
@@ -328,7 +319,7 @@ async function translateSTTResult(serverUrl) {
         
         if (result.success) {
             elements.processingStatus.textContent = '번역 완료';
-            console.log('✅ 번역 완료:', result.data);
+            console.log(' 번역 완료:', result.data);
             displayTranslationResult(result.data);
             showToast('음성 인식과 번역이 완료되었습니다!', 'success');
         } else {
@@ -336,7 +327,7 @@ async function translateSTTResult(serverUrl) {
         }
     } catch (error) {
         elements.processingStatus.textContent = '번역 실패';
-        console.error('❌ 번역 오류:', error);
+        console.error(' 번역 오류:', error);
         throw error;
     } finally {
         resetProcessingState();
@@ -369,14 +360,14 @@ function updateUploadProgress(progress) {
     elements.uploadStatus.textContent = `업로드 중... ${progress.percent || 0}%`;
 }
 
-// ✅ STT 결과 표시 (새로 추가)
+// STT 결과 표시 (새로 추가)
 function displaySTTResult(data) {
     elements.resultsPanel.style.display = 'block';
     
     // STT 텍스트
     if (data.text) {
         elements.sttResult.value = data.text;
-        console.log('📝 STT 텍스트:', data.text);
+        console.log(' STT 텍스트:', data.text);
     }
     
     // 감지된 언어
@@ -392,14 +383,14 @@ function displaySTTResult(data) {
     }
 }
 
-// ✅ 번역 결과 표시 (새로 추가)
+// 번역 결과 표시 (새로 추가)
 function displayTranslationResult(data) {
     elements.translationResult.style.display = 'block';
     
     // 번역 텍스트
     if (data.translated_text) {
         elements.translatedResult.value = data.translated_text;
-        console.log('🌐 번역 텍스트:', data.translated_text);
+        console.log(' 번역 텍스트:', data.translated_text);
     }
     
     // 목표 언어
@@ -458,38 +449,6 @@ async function saveResults() {
         }
     } catch (error) {
         showToast(`저장 오류: ${error.message}`, 'error');
-    }
-}
-
-// 텍스트 번역
-async function translateText() {
-    const text = elements.inputText.value.trim();
-    const sourceLang = elements.textSourceLang.value;
-    const targetLang = elements.textTargetLang.value;
-    const serverUrl = elements.serverUrl.value.trim();
-    
-    if (!text) {
-        showToast('번역할 텍스트를 입력해주세요.', 'warning');
-        return;
-    }
-    
-    try {
-        elements.translateTextBtn.disabled = true;
-        elements.translateTextBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 번역 중...';
-        
-        const result = await window.electronAPI.translateText(text, sourceLang, targetLang, serverUrl);
-        
-        if (result.success) {
-            elements.outputText.value = result.data.translated_text;
-            showToast('번역이 완료되었습니다.', 'success');
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`번역 오류: ${error.message}`, 'error');
-    } finally {
-        elements.translateTextBtn.disabled = false;
-        elements.translateTextBtn.innerHTML = '<i class="fas fa-language"></i> 번역하기';
     }
 }
 

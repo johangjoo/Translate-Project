@@ -650,9 +650,9 @@ class AudioPipeline:
         try:
             logger.info(f"독백 패턴 분석 중... (세그먼트 수: {len(segments)})")
             
-            # 세그먼트가 너무 적어도 독백 가능성 검토
-            if len(segments) < 2:
-                logger.info("세그먼트 1개 - 독백으로 판단")
+            # 세그먼트가 1개인 경우에만 확실한 독백으로 처리
+            if len(segments) <= 1:
+                logger.info("세그먼트 1개 이하 - 독백으로 판단")
                 return True
             
             # 1. 침묵 시간 분석
@@ -700,32 +700,35 @@ class AudioPipeline:
                     any(r in curr_text for r in response_words)):
                     speaker_change_signals += 1
             
-            # 5. 독백 판단 기준 (더 관대하게)
+            # 5. 독백 판단 기준 (훨씬 엄격하게)
+            #    → 여러 세그먼트가 오가고, 질문/응답 패턴이 조금이라도 보이면 대화로 처리
             monologue_indicators = [
                 very_long_silences == 0,               # 매우 긴 침묵(5초+)이 없음
-                avg_silence < 2.0,                     # 평균 침묵이 2초 미만 (완화)
-                avg_duration > 1.5 or max_duration > 4.0,  # 평균 1.5초+ 또는 최대 4초+
-                avg_text_length > 10,                  # 평균 텍스트가 10자 이상 (완화)
-                speaker_change_signals == 0,           # 화자 변경 신호가 없음
-                len(segments) <= 5                     # 세그먼트가 5개 이하 (독백은 보통 적음)
+                avg_silence < 1.0,                     # 평균 침묵이 1초 미만으로 매우 촘촘하게 이어짐
+                avg_duration > 3.0 or max_duration > 8.0,  # 발화가 길고 설명 위주인 경우
+                avg_text_length > 40,                  # 평균 텍스트가 상당히 길 때만
+                speaker_change_signals == 0,           # 질문-응답 패턴이 전혀 없을 때만
+                len(segments) <= 3                     # 세그먼트가 아주 적을 때만
             ]
-            
+
             monologue_score = sum(monologue_indicators)
-            
-            logger.info(f"독백 분석 결과: 점수 {monologue_score}/6 "
-                       f"(매우긴침묵: {very_long_silences}, 긴침묵: {long_silences}, "
-                       f"평균침묵: {avg_silence:.1f}초, 평균발화: {avg_duration:.1f}초, "
-                       f"최대발화: {max_duration:.1f}초, 평균텍스트: {avg_text_length:.1f}자, "
-                       f"화자변경신호: {speaker_change_signals})")
-            
-            # 6개 중 4개 이상 만족하면 독백으로 판단
-            is_monologue = monologue_score >= 4
-            
+
+            logger.info(
+                f"독백 분석 결과: 점수 {monologue_score}/6 "
+                f"(매우긴침묵: {very_long_silences}, 긴침묵: {long_silences}, "
+                f"평균침묵: {avg_silence:.1f}초, 평균발화: {avg_duration:.1f}초, "
+                f"최대발화: {max_duration:.1f}초, 평균텍스트: {avg_text_length:.1f}자, "
+                f"화자변경신호: {speaker_change_signals})"
+            )
+
+            # 이제는 6개 중 5개 이상 만족할 때만 독백으로 본다
+            is_monologue = monologue_score >= 5
+
             if is_monologue:
                 logger.info("🎤 독백으로 판단됨 - 독백 전용 처리 모드 활성화")
             else:
                 logger.info("💬 대화로 판단됨 - 음성 특성 기반 화자분리 진행")
-            
+
             return is_monologue
             
         except Exception as e:
