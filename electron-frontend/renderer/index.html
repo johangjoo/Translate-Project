@@ -210,49 +210,6 @@
                     </button>
                 </div>
             </div>
-
-            <!-- 텍스트 번역 패널 -->
-            <div class="panel text-translation-panel">
-                <h2><i class="fas fa-language"></i> 텍스트 번역</h2>
-                <div class="text-translation-content">
-                    <div class="input-row">
-                        <div class="input-group">
-                            <label for="textSourceLang">원본 언어:</label>
-                            <select id="textSourceLang">
-                                <option value="ko">한국어</option>
-                                <option value="ja">일본어</option>
-                                <option value="en">영어</option>
-                                <option value="zh">중국어</option>
-                            </select>
-                        </div>
-                        <div class="input-group">
-                            <label for="textTargetLang">번역 언어:</label>
-                            <select id="textTargetLang">
-                                <option value="ja">일본어</option>
-                                <option value="ko">한국어</option>
-                                <option value="en">영어</option>
-                                <option value="zh">중국어</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="text-areas">
-                        <div class="text-input-section">
-                            <label for="inputText">번역할 텍스트:</label>
-                            <textarea id="inputText" placeholder="번역할 텍스트를 입력하세요..."></textarea>
-                        </div>
-                        <div class="text-output-section">
-                            <label for="outputText">번역 결과:</label>
-                            <textarea id="outputText" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
-                            <button class="copy-btn" onclick="copyToClipboard('outputText')">
-                                <i class="fas fa-copy"></i> 복사
-                            </button>
-                        </div>
-                    </div>
-                    <button id="translateTextBtn" class="btn btn-primary">
-                        <i class="fas fa-language"></i> 번역하기
-                    </button>
-                </div>
-            </div>
         </main>
 
         <!-- 푸터 -->
