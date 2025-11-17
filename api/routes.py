@@ -23,6 +23,10 @@ from .models import (
 
 router = APIRouter()
 
+# 번역/오디오 파이프라인에서 사용할 클래스들 (요청 시 로딩)
+from api.translation import Qwen3Translator
+from api.audio_pipeline import AudioPipeline
+
 # 업로드 디렉토리
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -126,7 +130,8 @@ async def process_audio(
     enable_diarization: bool = Form(True, description="화자분리 활성화"),
     language: Optional[str] = Form(None, description="언어 코드 (None=자동감지)"),
     create_srt: bool = Form(True, description="SRT 자막 파일 생성"),
-    save_outputs: bool = Form(True, description="결과 파일 저장")
+    save_outputs: bool = Form(True, description="결과 파일 저장"),
+    max_speakers: int = Form(2, description="최대 화자 수 (1~10)")
 ):
     """
     🎵 통합 오디오 처리 파이프라인
@@ -142,14 +147,22 @@ async def process_audio(
     - enable_transcription: STT만 원하면 denoise=false
     - enable_diarization: 화자분리 제외하려면 false
     """
-    from api import audio_pipeline
-    
-    pipeline = audio_pipeline.audio_pipeline_instance
-    if pipeline is None:
-        raise HTTPException(
-            status_code=503,
-            detail="오디오 파이프라인이 초기화되지 않았습니다."
-        )
+    # 요청마다 새로운 AudioPipeline 인스턴스를 생성하고,
+    # 내부에서 Whisper / 노이즈 제거 / 화자분리 모델을
+    # "필요할 때만" 로드해서 사용한 뒤 가능한 한 언로드한다.
+    pipeline: AudioPipeline = AudioPipeline(
+        use_gpu=True,
+        target_language=language or None,
+    )
+
+    # 최대 화자 수 설정 (1~10 범위로 클램프)
+    try:
+        if max_speakers is not None:
+            clamped = max(1, min(10, int(max_speakers)))
+            pipeline.max_speakers = clamped
+    except Exception:
+        # 잘못된 값이 들어와도 기본값(2)을 유지
+        pass
     
     temp_path = None
     total_start = time.time()
@@ -198,6 +211,8 @@ async def process_audio(
             result["denoise_time"] = None
         
         # 2. STT + 화자분리
+        # 2. STT + 화자분리 섹션에서 수정 (224줄 근처)
+
         if enable_transcription:
             print("🎤 음성 전사 시작...")
             transcription_start = time.time()
@@ -210,22 +225,16 @@ async def process_audio(
             
             timing["transcription"] = time.time() - transcription_start
             
-            result["text"] = transcript_result["text"]
+            # ✅ 수정: simple 파일 내용 사용
+            simple_path = transcript_result.get("simple_path")
+            if simple_path and os.path.exists(simple_path):
+                with open(simple_path, 'r', encoding='utf-8') as f:
+                    result["text"] = f.read()
+            else:
+                result["text"] = transcript_result["text"]  # fallback
+            
             result["detected_language"] = language or "auto"
             result["transcription_time"] = round(timing["transcription"], 2)
-            
-            print(f"✅ 전사 완료 ({timing['transcription']:.2f}초)\n")
-            
-            if save_outputs:
-                result["transcript_path"] = transcript_result.get("transcript_path")
-                result["simple_transcript_path"] = transcript_result.get("simple_path")
-                result["text_only_path"] = transcript_result.get("text_only_path")
-                result["srt_path"] = transcript_result.get("srt_path") if create_srt else None
-                
-                if result["transcript_path"]:
-                    segments = parse_transcript_segments(result["transcript_path"])
-                    result["segments"] = segments
-                    result["num_speakers"] = len(set(s.speaker for s in segments if s.speaker))
             
         else:
             print("⏭️  음성 전사 스킵\n")
@@ -246,7 +255,7 @@ async def process_audio(
         print("="*60 + "\n")
         
         return AudioProcessResponse(**result)
-        
+
     except Exception as e:
         print(f"\n❌ 오류: {str(e)}\n")
         raise HTTPException(status_code=500, detail=str(e))
@@ -254,6 +263,11 @@ async def process_audio(
     finally:
         if temp_path:
             cleanup_file(temp_path)
+        # 사용이 끝난 후 모델을 메모리에서 해제하여 VRAM을 확보
+        try:
+            pipeline.unload_models()
+        except Exception:
+            pass
 
 
 # ===== 2. 텍스트 번역 =====
@@ -269,19 +283,37 @@ async def translate_text_only(
     
     **지원 언어:** ko ↔ ja (양방향)
     """
-    from api import translation
-    
     start_time = time.time()
     
     try:
         print(f"🌐 텍스트 번역: {source_lang} → {target_lang}")
         print(f"   원문: {text[:100]}...")
-        
-        result = translation.qwen3_translator.translate(
-            text=text,
-            source_lang=source_lang,
-            target_lang=target_lang
+
+        # 요청마다 번역 모델을 로드하고, 사용 후 언로드
+        # (12GB VRAM 환경을 고려한 온디맨드 로딩 전략)
+        from pathlib import Path as _Path
+
+        project_root = _Path(__file__).resolve().parent.parent
+        model_path = project_root / "qwen3-8b-lora-10ratio" / "qwen3-8b-lora-10ratio"
+        if not model_path.exists():
+            # 사용자가 다른 구조로 둘 수 있으므로, 상위 폴더만 전달하는 플랜B
+            model_path = project_root / "qwen3-8b-lora-10ratio"
+
+        translator = Qwen3Translator(
+            model_path=str(model_path),
+            use_gpu=True,
+            load_in_4bit=True,
         )
+        translator.load_model()
+        try:
+            result = translator.translate(
+                text=text,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
+        finally:
+            # 번역이 끝나면 모델을 언로드해서 VRAM을 최대한 비워준다
+            translator.unload_model()
         
         processing_time = time.time() - start_time
         print(f"✅ 번역 완료 ({processing_time:.2f}초)")

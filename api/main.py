@@ -10,8 +10,6 @@ import logging
 from pathlib import Path
 
 from api.routes import router
-from api.inference import initialize_stt_models
-from api.translation import initialize_translator
 
 # 로깅 설정
 logging.basicConfig(
@@ -42,63 +40,43 @@ app.include_router(router, prefix="/api/v1", tags=["API"])
 
 @app.on_event("startup")
 async def startup_event():
-    """서버 시작 시 모든 모델 로딩"""
+    """서버 시작 시 안내 메시지만 출력 (모델은 요청 시 로딩)"""
     print("\n" + "="*70)
     print("🚀 Audio Translation API 서버 시작...")
     print("="*70 + "\n")
-    
-    # 프로젝트 루트 경로
+
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     print(f"📂 프로젝트 루트: {PROJECT_ROOT}\n")
-    
-    # 1. STT 모델 로딩
-    print("🎤 [1/3] Whisper STT 모델 로딩...")
-    initialize_stt_models(
-        whisper_model_size="medium",
-        language=None,
-        use_denoiser=False
-    )
+
+    print("⚙️  모델은 이제 '요청이 들어올 때' 로드되고, 처리 후 가능한 한 언로드됩니다.")
     print()
-    
-    # 2. 번역 모델 로딩
-    print("🌐 [2/3] Qwen3 번역 모델 로딩...")
-    model_path = PROJECT_ROOT / "qwen3-8b-lora-10ratio/qwen3-8b-lora-10ratio"
-    
-    if not model_path.exists():
-        print(f"⚠️  경고: 모델 경로가 존재하지 않습니다: {model_path}")
-        print(f"   상대 경로로 재시도...")
-        model_path = "qwen3-8b-lora-10ratio"
-    
-    initialize_translator(
-        model_path=str(model_path),
-        use_gpu=True,
-        load_in_4bit=True
-    )
-    print()
-    
-    # 3. 오디오 파이프라인 초기화 (새로 추가!)
-    print("🎵 [3/3] 오디오 파이프라인 로딩...")
-    from api import audio_pipeline
-    audio_pipeline.initialize_audio_pipeline(
-        use_gpu=True,
-        whisper_model_size="large-v3",
-        load_denoiser=True,
-        load_speaker_encoder=True
-    )
-    print()
-    
     print("="*70)
-    print("✅ 모든 모델 로딩 완료!")
-    print()
-    print("📡 서버 실행 중: http://127.0.0.0:8000")
-    print("📚 API 문서: http://127.0.0.0:8000/docs")
+    print("📡 서버 실행 중: http://127.0.0.1:8000")
+    print("📚 API 문서: http://127.0.0.1:8000/docs")
     print()
     print("🎯 사용 가능한 기능:")
-    print("   ✓ STT만             → /api/v1/transcribe")
+
+    print("   ✓ STT만             → /api/v1/transcribe (구현 시)")
     print("   ✓ 번역만             → /api/v1/translate-text")
-    print("   ✓ 오디오 파이프라인  → /api/audio/process")  # 새로 추가
+    print("   ✓ 오디오 파이프라인  → /api/audio/process")
     print("   ✓ 상태 확인          → /api/v1/health")
-    print("="*70 + "\n")
+
+    print("   ✓ 텍스트 번역         → /api/v1/translate-text")
+    print("   ✓ 오디오 파이프라인   → /api/v1/audio/process")
+    print("   ✓ 상태 확인           → /api/v1/health")
+
+    print("   ✓ 텍스트 번역         → /api/v1/translate-text")
+    print("   ✓ 오디오 파이프라인   → /api/v1/audio/process")
+    print("   ✓ 상태 확인           → /api/v1/health")
+
+    print("   ✓ 텍스트 번역         → /api/v1/translate-text")
+    print("   ✓ 오디오 파이프라인   → /api/v1/audio/process")
+    print("   ✓ 상태 확인           → /api/v1/health")
+
+    print("   ✓ 텍스트 번역         → /api/v1/translate-text")
+    print("   ✓ 오디오 파이프라인   → /api/v1/audio/process")
+    print("   ✓ 상태 확인           → /api/v1/health")
+    
 
 @app.get("/")
 def root():
@@ -113,10 +91,12 @@ def root():
             "pipeline": "음성 → 텍스트 → 번역"
         },
         "endpoints": {
-            "transcribe": "/api/v1/transcribe",
             "translate": "/api/v1/translate-text",
-            "full_pipeline": "/api/v1/audio-to-translation",
+            "audio_pipeline": "/api/v1/audio/process",
             "health": "/api/v1/health",
+            "audio_health": "/api/v1/audio/health",
+            "audio_memory": "/api/v1/audio/memory",
+            "languages": "/api/v1/languages",
             "docs": "/docs"
         }
     }

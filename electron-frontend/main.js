@@ -262,7 +262,8 @@ ipcMain.handle('convert-to-wav', async (event, inputPath) => {
 });
 
 // ✅ FastAPI 서버에 오디오 파일 전송
-ipcMain.handle('send-to-api', async (event, filePath, apiEndpoint, serverUrl = 'http://127.0.0.1:8000') => {
+ipcMain.handle('send-to-api', async (event, filePath, apiEndpoint, serverUrl = 'http://127.0.0.1:8000', options = {}) => {
+
   try {
     // 파일 존재 확인
     if (!fs.existsSync(filePath)) {
@@ -277,8 +278,13 @@ ipcMain.handle('send-to-api', async (event, filePath, apiEndpoint, serverUrl = '
     if (apiEndpoint === 'audio/process') {
       formData.append('enable_denoise', 'false');
       formData.append('enable_transcription', 'true');
-      formData.append('enable_diarization', 'false');
+      formData.append('enable_diarization', 'true');
       formData.append('save_outputs', 'false');
+
+      // 최대 화자 수 전달 (선택 사항)
+      if (options && typeof options.maxSpeakers === 'number') {
+        formData.append('max_speakers', String(options.maxSpeakers));
+      }
     }
 
     // ✅ API 요청
