@@ -6,11 +6,11 @@ let sttResultData = null; // ✅ STT 결과 저장용
 
 // DOM 요소들
 const elements = {
-    serverUrl: document.getElementById('serverUrl'),
+    serverUrl: document.getElementById('serverUrl') || { value: 'http://127.0.0.1:8000' },
     serverStatus: document.getElementById('serverStatus'),
     statusIndicator: document.getElementById('statusIndicator'),
     statusText: document.getElementById('statusText'),
-    checkServerBtn: document.getElementById('checkServerBtn'),
+    checkServerBtn: document.getElementById('checkServerBtn') || { addEventListener: () => {} },
     
     fileDropZone: document.getElementById('fileDropZone'),
     selectFileBtn: document.getElementById('selectFileBtn'),
@@ -21,6 +21,11 @@ const elements = {
     
     processingModes: document.querySelectorAll('input[name="processingMode"]'),
     translationSettings: document.getElementById('translationSettings'),
+    translationModel: document.getElementById('translationModel'),
+    apiKeyGroup: document.getElementById('apiKeyGroup'),
+    apiKey: document.getElementById('apiKey'),
+    modelInfoGroup: document.getElementById('modelInfoGroup'),
+    modelInfoText: document.getElementById('modelInfoText'),
     sourceLang: document.getElementById('sourceLang'),
     targetLang: document.getElementById('targetLang'),
     maxSpeakers: document.getElementById('maxSpeakers'),
@@ -69,6 +74,31 @@ function initializeApp() {
             }
         });
     });
+    
+    // 번역 모델 선택 시 API 키 입력 필드 및 모델 정보 표시/숨김
+    function updateModelUI() {
+        const modelType = elements.translationModel.value;
+        if (modelType === 'openai' || modelType === 'gemini') {
+            elements.apiKeyGroup.style.display = 'block';
+            elements.modelInfoGroup.style.display = 'block';
+            
+            // 모델 타입에 따라 고정 모델 정보 표시
+            if (modelType === 'openai') {
+                elements.modelInfoText.textContent = 'GPT-4o (고정)';
+            } else if (modelType === 'gemini') {
+                elements.modelInfoText.textContent = 'Gemini 1.5 Flash (고정)';
+            }
+        } else {
+            // qwen-local일 때는 API 키 필드 숨김
+            elements.apiKeyGroup.style.display = 'none';
+            elements.modelInfoGroup.style.display = 'none';
+        }
+    }
+    
+    elements.translationModel.addEventListener('change', updateModelUI);
+    
+    // 초기 로드 시에도 UI 업데이트 (qwen-local이 기본값이므로 API 키 필드 숨김)
+    updateModelUI();
     
     // 파일 선택 상태에 따른 버튼 활성화
     updateProcessButton();
@@ -312,15 +342,24 @@ async function translateSTTResult(serverUrl) {
         
         const sourceLang = elements.sourceLang.value;
         const targetLang = elements.targetLang.value;
+        const modelType = elements.translationModel.value;
+        const apiKey = modelType === 'qwen-local' ? null : elements.apiKey.value.trim();
+        
+        // API 모델 사용 시에만 API 키 검증
+        if ((modelType === 'openai' || modelType === 'gemini') && !apiKey) {
+            throw new Error(`${modelType === 'openai' ? 'OpenAI' : 'Gemini'} 모델 사용 시 API 키가 필요합니다.`);
+        }
         
         elements.processingStatus.textContent = '번역 중...';
-        console.log(` 번역 시작: ${sourceLang} → ${targetLang}`);
+        console.log(` 번역 시작: ${sourceLang} → ${targetLang} (모델: ${modelType})`);
         
         const result = await window.electronAPI.translateText(
             sttResultData.text,
             sourceLang,
             targetLang,
-            serverUrl
+            serverUrl,
+            modelType,
+            apiKey || null
         );
         
         if (result.success) {

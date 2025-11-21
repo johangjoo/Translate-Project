@@ -41,7 +41,8 @@ def check_environment():
         "api/main.py",
         "api/routes.py",
         "api/inference.py",
-        "api/translation.py"
+        "api/translation/__init__.py",
+        "api/translation/factory.py"
     ]
     
     missing_files = []

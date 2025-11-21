@@ -19,7 +19,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkServerStatus: (serverUrl) => ipcRenderer.invoke('check-server-status', serverUrl),
   
   // 텍스트 번역
-  translateText: (text, sourceLang, targetLang, serverUrl) => ipcRenderer.invoke('translate-text', text, sourceLang, targetLang, serverUrl),
+  translateText: (text, sourceLang, targetLang, serverUrl, modelType, apiKey) => 
+    ipcRenderer.invoke('translate-text', text, sourceLang, targetLang, serverUrl, modelType, apiKey),
   
   // 임시 파일 정리
   cleanupTempFiles: (filePaths) => ipcRenderer.invoke('cleanup-temp-files', filePaths),

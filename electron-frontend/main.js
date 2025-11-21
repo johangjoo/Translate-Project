@@ -330,17 +330,23 @@ ipcMain.handle('check-server-status', async (event, serverUrl = 'http://127.0.0.
 });
 
 // ✅ 텍스트 번역
-ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, serverUrl = 'http://127.0.0.1:8000') => {
+ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, serverUrl = 'http://127.0.0.1:8000', modelType = 'qwen-local', apiKey = null) => {
   try {
-    console.log(`🌐 텍스트 번역 요청: ${sourceLang} → ${targetLang}`);
+    console.log(`🌐 텍스트 번역 요청: ${sourceLang} → ${targetLang} (모델: ${modelType})`);
     
     // Form 데이터로 전송
     const URLSearchParams = require('url').URLSearchParams;
     const params = new URLSearchParams({
       text: text,
       source_lang: sourceLang,
-      target_lang: targetLang
+      target_lang: targetLang,
+      model_type: modelType
     });
+    
+    // API 키가 있으면 추가
+    if (apiKey) {
+      params.append('api_key', apiKey);
+    }
     
     const response = await axios.post(`${serverUrl}/api/v1/translate-text`,
       params.toString(),

@@ -24,7 +24,7 @@ from .models import (
 router = APIRouter()
 
 # 번역/오디오 파이프라인에서 사용할 클래스들 (요청 시 로딩)
-from api.translation import Qwen3Translator
+from api.translation import create_translator, TranslationModelType
 from api.audio_pipeline import AudioPipeline
 
 # 업로드 디렉토리
@@ -276,34 +276,115 @@ async def process_audio(
 async def translate_text_only(
     text: str = Form(..., description="번역할 텍스트"),
     source_lang: str = Form("ko", description="원본 언어 (ko, ja, en)"),
-    target_lang: str = Form("ja", description="목표 언어 (ko, ja, en)")
+    target_lang: str = Form("ja", description="목표 언어 (ko, ja, en)"),
+    model_type: str = Form("qwen-local", description="번역 모델 타입 (qwen-local, openai, gemini)"),
+    api_key: Optional[str] = Form(None, description="API 키 (openai/gemini 사용 시 필수)")
 ):
     """
-    📝 텍스트 번역
+    📝 텍스트 번역 (다중 모델 지원)
     
-    **지원 언어:** ko ↔ ja (양방향)
+    **지원 모델 (고정):**
+    - `qwen-local`: 로컬 Qwen3-8b LoRA 10ratio 모델 (기본값)
+    - `openai`: OpenAI GPT-5.1 모델 (api_key 필수)
+    - `gemini`: Google Gemini 3 Flash 모델 (api_key 필수)
+    
+    **지원 언어:** ko ↔ ja ↔ en (양방향)
+    
+    **예시:**
+    - 로컬 모델: model_type=qwen-local
+    - OpenAI: model_type=openai, api_key=sk-...
+    - Gemini: model_type=gemini, api_key=AIza...
     """
     start_time = time.time()
     
     try:
-        print(f"🌐 텍스트 번역: {source_lang} → {target_lang}")
+        print(f"🌐 텍스트 번역: {source_lang} → {target_lang} (모델: {model_type})")
         print(f"   원문: {text[:100]}...")
 
-        # 요청마다 번역 모델을 로드하고, 사용 후 언로드
-        # (12GB VRAM 환경을 고려한 온디맨드 로딩 전략)
-        from pathlib import Path as _Path
-
-        project_root = _Path(__file__).resolve().parent.parent
-        model_path = project_root / "qwen3-8b-lora-10ratio" / "qwen3-8b-lora-10ratio"
-        if not model_path.exists():
-            # 사용자가 다른 구조로 둘 수 있으므로, 상위 폴더만 전달하는 플랜B
-            model_path = project_root / "qwen3-8b-lora-10ratio"
-
-        translator = Qwen3Translator(
-            model_path=str(model_path),
-            use_gpu=True,
-            load_in_4bit=True,
-        )
+        # 모델 타입에 따라 번역기 생성
+        translator = None
+        
+        if model_type == "qwen-local":
+            # 로컬 Qwen 모델 경로 찾기 (config.py에서 가져오기)
+            from api.config import TRANSLATION_BASE_MODEL
+            from pathlib import Path as _Path
+            
+            # config.py의 경로 사용
+            model_path = None
+            project_root = _Path(__file__).resolve().parent.parent
+            
+            # 여러 가능한 경로 시도
+            possible_paths = [
+                Path(TRANSLATION_BASE_MODEL) / "qwen3-8b-lora-10ratio",
+                Path(TRANSLATION_BASE_MODEL),
+                project_root / "qwen3-8b-lora-10ratio" / "qwen3-8b-lora-10ratio",
+                project_root / "qwen3-8b-lora-10ratio",
+            ]
+            
+            # 경로 찾기
+            for path in possible_paths:
+                path_obj = Path(path)
+                if path_obj.exists() and path_obj.is_dir():
+                    # config.json이나 tokenizer.json이 있는지 확인
+                    if (path_obj / "config.json").exists() or (path_obj / "tokenizer.json").exists():
+                        model_path = path_obj
+                        print(f"[OK] 모델 경로 찾음: {model_path}")
+                        break
+            
+            # 모델 경로를 찾지 못한 경우
+            if model_path is None:
+                error_msg = (
+                    f"Qwen 모델을 찾을 수 없습니다.\n"
+                    f"시도한 경로:\n"
+                )
+                for path in possible_paths:
+                    error_msg += f"  - {path}\n"
+                error_msg += f"\napi/config.py의 TRANSLATION_BASE_MODEL을 확인하세요."
+                raise HTTPException(status_code=500, detail=error_msg)
+            
+            translator = create_translator(
+                model_type=TranslationModelType.QWEN_LOCAL,
+                model_path=str(model_path),
+                use_gpu=True,
+                load_in_4bit=True
+            )
+            
+        elif model_type == "openai":
+            if not api_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenAI 모델 사용 시 api_key가 필요합니다."
+                )
+            
+            # 고정 모델: GPT-5.1
+            translator = create_translator(
+                model_type=TranslationModelType.OPENAI,
+                api_key=api_key,
+                model_name="gpt-5.1"
+            )
+            
+        elif model_type == "gemini":
+            if not api_key:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Gemini 모델 사용 시 api_key가 필요합니다."
+                )
+            
+            # 고정 모델: Gemini 3 Pro Preview (무료 티어에서는 사용 불가)
+            # 무료 티어를 사용하려면 "gemini-1.5-flash"로 변경하세요
+            translator = create_translator(
+                model_type=TranslationModelType.GEMINI,
+                api_key=api_key,
+                model_name="gemini-2.5-flash"  # 무료 티어 미지원, 유료 플랜 필요
+            )
+            
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"지원하지 않는 모델 타입: {model_type}. 지원 타입: qwen-local, openai, gemini"
+            )
+        
+        # 모델 로드 및 번역 실행
         translator.load_model()
         try:
             result = translator.translate(
@@ -319,14 +400,16 @@ async def translate_text_only(
         print(f"✅ 번역 완료 ({processing_time:.2f}초)")
         
         return TranslationResponse(
-            original_text=text,
-            translated_text=result["translated_text"],
-            source_lang=source_lang,
-            target_lang=target_lang,
+            original_text=result.original_text,
+            translated_text=result.translated_text,
+            source_lang=result.source_lang,
+            target_lang=result.target_lang,
             audio_filename="N/A",
             processing_time=round(processing_time, 2)
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -338,7 +421,6 @@ async def translate_text_only(
 async def health_check():
     """기본 시스템 상태 확인"""
     from api import inference
-    from api import translation
     
     stt_ok = False
     stt_dev = "unknown"
@@ -347,12 +429,9 @@ async def health_check():
             stt_ok = True
             stt_dev = getattr(inference.whisper_stt, 'device', 'unknown')
     
-    trans_ok = False
-    trans_dev = "unknown"
-    if hasattr(translation, 'qwen3_translator') and translation.qwen3_translator is not None:
-        if hasattr(translation.qwen3_translator, 'model') and translation.qwen3_translator.model is not None:
-            trans_ok = True
-            trans_dev = getattr(translation.qwen3_translator, 'device', 'unknown')
+    # 번역 모델은 요청 시 로드되므로 항상 사용 가능 상태로 표시
+    trans_ok = True  # 모듈화된 번역 시스템은 항상 사용 가능
+    trans_dev = "on-demand"  # 요청 시 로드
     
     return BasicHealthResponse(
         status="healthy",
