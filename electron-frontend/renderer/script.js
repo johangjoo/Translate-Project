@@ -6,11 +6,6 @@ let sttResultData = null; // ✅ STT 결과 저장용
 
 // DOM 요소들
 const elements = {
-    serverUrl: document.getElementById('serverUrl'),
-    serverStatus: document.getElementById('serverStatus'),
-    statusIndicator: document.getElementById('statusIndicator'),
-    statusText: document.getElementById('statusText'),
-    checkServerBtn: document.getElementById('checkServerBtn'),
     
     fileDropZone: document.getElementById('fileDropZone'),
     selectFileBtn: document.getElementById('selectFileBtn'),
@@ -19,11 +14,16 @@ const elements = {
     filePath: document.getElementById('filePath'),
     removeFileBtn: document.getElementById('removeFileBtn'),
     
-    processingModes: document.querySelectorAll('input[name="processingMode"]'),
+    sttOnlyBtn: document.getElementById('sttOnlyBtn'),
+    fullPipelineBtn: document.getElementById('fullPipelineBtn'),
+    speakerDiarizationBtn: document.getElementById('speakerDiarizationBtn'),
+    timestampsBtn: document.getElementById('timestampsBtn'),
     translationSettings: document.getElementById('translationSettings'),
     sourceLang: document.getElementById('sourceLang'),
     targetLang: document.getElementById('targetLang'),
     maxSpeakers: document.getElementById('maxSpeakers'),
+    speakerCountDisplay: document.getElementById('speakerCountDisplay'),
+    enableSpeakerDiarization: document.getElementById('enableSpeakerDiarization'),
     processBtn: document.getElementById('processBtn'),
     
     progressPanel: document.getElementById('progressPanel'),
@@ -55,31 +55,94 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
     setupEventListeners();
-    checkServerStatus();
 });
 
 function initializeApp() {
-    // 처리 모드 변경 시 번역 설정 표시/숨김
-    elements.processingModes.forEach(radio => {
-        radio.addEventListener('change', (e) => {
-            if (e.target.value === 'audio-to-translation') {
-                elements.translationSettings.style.display = 'block';
-            } else {
-                elements.translationSettings.style.display = 'none';
-            }
-        });
+    // 처리 모드 버튼 이벤트
+    elements.sttOnlyBtn.addEventListener('click', () => {
+        setProcessingMode('transcribe');
+    });
+    
+    elements.fullPipelineBtn.addEventListener('click', () => {
+        setProcessingMode('audio-to-translation');
+    });
+    
+    // 옵션 버튼 이벤트
+    elements.speakerDiarizationBtn.addEventListener('click', () => {
+        toggleOptionButton(elements.speakerDiarizationBtn);
+    });
+    
+    elements.timestampsBtn.addEventListener('click', () => {
+        toggleOptionButton(elements.timestampsBtn);
+    });
+    
+    // 화자 수 선택 이벤트
+    elements.maxSpeakers.addEventListener('change', () => {
+        updateSpeakerCountDisplay();
     });
     
     // 파일 선택 상태에 따른 버튼 활성화
     updateProcessButton();
+    
+    // 초기 화자수 표시 업데이트
+    updateSpeakerCountDisplay();
+}
+
+function setProcessingMode(mode) {
+    // 모든 처리 모드 버튼 비활성화
+    elements.sttOnlyBtn.classList.remove('active');
+    elements.fullPipelineBtn.classList.remove('active');
+    
+    // 선택된 모드 활성화
+    if (mode === 'transcribe') {
+        elements.sttOnlyBtn.classList.add('active');
+        elements.translationSettings.style.display = 'none';
+    } else if (mode === 'audio-to-translation') {
+        elements.fullPipelineBtn.classList.add('active');
+        elements.translationSettings.style.display = 'block';
+    }
+}
+
+function toggleOptionButton(button) {
+    button.classList.toggle('active');
+    const isActive = button.classList.contains('active');
+    console.log('버튼 토글:', button.id, '활성화:', isActive);
+}
+
+function getProcessingMode() {
+    if (elements.sttOnlyBtn.classList.contains('active')) {
+        return 'transcribe';
+    } else if (elements.fullPipelineBtn.classList.contains('active')) {
+        return 'audio-to-translation';
+    }
+    return 'transcribe'; // 기본값
+}
+
+function isSpeakerDiarizationEnabled() {
+    return elements.speakerDiarizationBtn.classList.contains('active');
+}
+
+function isTimestampsEnabled() {
+    return elements.timestampsBtn.classList.contains('active');
+}
+
+function updateSpeakerCountDisplay() {
+    const selectedValue = elements.maxSpeakers.value;
+    console.log('화자수 업데이트:', selectedValue);
+    if (elements.speakerCountDisplay) {
+        elements.speakerCountDisplay.textContent = `${selectedValue}명`;
+        console.log('화자수 표시 업데이트 완료:', `${selectedValue}명`);
+    } else {
+        console.error('speakerCountDisplay 요소를 찾을 수 없습니다');
+    }
 }
 
 function setupEventListeners() {
-    // 서버 연결 확인
-    elements.checkServerBtn.addEventListener('click', checkServerStatus);
-    
     // 파일 선택
-    elements.selectFileBtn.addEventListener('click', selectFile);
+    elements.selectFileBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 부모 fileDropZone의 click 이벤트로 전파 방지
+        selectFile();
+    });
     elements.removeFileBtn.addEventListener('click', removeFile);
     
     // 드래그 앤 드롭
@@ -104,30 +167,6 @@ function setupEventListeners() {
     window.electronAPI.onUploadProgress((progress) => {
         updateUploadProgress(progress);
     });
-}
-
-// 서버 상태 확인
-async function checkServerStatus() {
-    const serverUrl = elements.serverUrl.value.trim();
-    
-    try {
-        elements.statusText.textContent = '연결 확인 중...';
-        elements.statusIndicator.className = 'status-indicator';
-        
-        const result = await window.electronAPI.checkServerStatus(serverUrl);
-        
-        if (result.success) {
-            elements.statusText.textContent = '서버 연결됨';
-            elements.statusIndicator.className = 'status-indicator connected';
-            showToast('서버에 성공적으로 연결되었습니다.', 'success');
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        elements.statusText.textContent = '서버 연결 실패';
-        elements.statusIndicator.className = 'status-indicator disconnected';
-        showToast(`서버 연결 실패: ${error.message}`, 'error');
-    }
 }
 
 // 파일 선택
@@ -195,14 +234,12 @@ async function startProcessing() {
         return;
     }
     
-    const serverUrl = elements.serverUrl.value.trim();
-    const processingMode = document.querySelector('input[name="processingMode"]:checked').value;
+    const serverUrl = 'http://127.0.0.1:8000';
+    const processingMode = getProcessingMode();
     
     try {
         // UI 상태 변경
         elements.processBtn.disabled = true;
-        elements.progressPanel.style.display = 'block';
-        elements.resultsPanel.style.display = 'none';
         sttResultData = null;
         
         // 1단계: 오디오 변환 (WAV)
@@ -268,11 +305,19 @@ async function sendToSTT(serverUrl) {
             ? Number(elements.maxSpeakers.value || 2)
             : 2;
 
+        // 새로운 옵션들 추가
+        const enableSpeakerDiarization = isSpeakerDiarizationEnabled();
+        const enableTimestamps = isTimestampsEnabled();
+
         const result = await window.electronAPI.sendToAPI(
             convertedWavPath,
             'audio/process',  // FastAPI 엔드포인트
             serverUrl,
-            { maxSpeakers }
+            { 
+                maxSpeakers,
+                enableSpeakerDiarization,
+                enableTimestamps
+            }
         );
         
         if (result.success) {
@@ -368,8 +413,6 @@ function updateUploadProgress(progress) {
 
 // STT 결과 표시 (새로 추가)
 function displaySTTResult(data) {
-    elements.resultsPanel.style.display = 'block';
-    
     // STT 텍스트
     if (data.text) {
         elements.sttResult.value = data.text;
@@ -391,8 +434,6 @@ function displaySTTResult(data) {
 
 // 번역 결과 표시 (새로 추가)
 function displayTranslationResult(data) {
-    elements.translationResult.style.display = 'block';
-    
     // 번역 텍스트
     if (data.translated_text) {
         elements.translatedResult.value = data.translated_text;
@@ -426,9 +467,6 @@ function resetProcessingState() {
 // 새 파일 처리를 위한 리셋
 function resetForNewFile() {
     removeFile();
-    elements.progressPanel.style.display = 'none';
-    elements.resultsPanel.style.display = 'none';
-    elements.translationResult.style.display = 'none';
     resetProcessingState();
     sttResultData = null;
 }

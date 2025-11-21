@@ -60,17 +60,23 @@ except ImportError as e:
 class AudioPipeline:
     """음성 및 비디오 파이프라인 클래스"""
     
-    def __init__(self, use_gpu=True, target_language=None):
+    def __init__(self, use_gpu=True, target_language=None, enable_speaker_diarization=True, enable_timestamps=True):
         """
         파이프라인 초기화
         
         Args:
             use_gpu (bool): GPU 사용 여부
             target_language (str): 대상 언어 ('ko', 'ja', 'en', None=자동감지)
+            enable_speaker_diarization (bool): 화자분리 활성화 여부
+            enable_timestamps (bool): 타임스탬프 포함 여부
         """
         self.use_gpu = use_gpu and torch.cuda.is_available()
         self.device = "cuda" if self.use_gpu else "cpu"
         self.target_language = target_language
+        
+        # 새로운 옵션 설정
+        self.enable_speaker_diarization = enable_speaker_diarization
+        self.enable_timestamps = enable_timestamps
         
         # WhisperX + pyannote 설정 (환경변수에서 토큰 읽기)
         self.pyannote_auth_token = os.getenv("PYANNOTE_AUTH_TOKEN", None)
@@ -295,7 +301,7 @@ class AudioPipeline:
             
             # 음성 인식 옵션 (단어별 타임스탬프 포함)
             transcribe_options = {
-                "word_timestamps": True,
+                "word_timestamps": self.enable_timestamps,
                 "verbose": True
             }
             
@@ -418,17 +424,25 @@ class AudioPipeline:
             # 타임스탬프가 포함된 텍스트 파일로 저장
             self._save_transcript_with_timestamps(audio_file, output_text_file, result)
             
-            # 간단한 타임스탬프+화자 정보 파일 생성
+            # 간단한 타임스탬프+화자 정보 파일 생성 (화자분리 옵션에 따라)
             simple_file = Path(output_text_file).parent / f"{Path(output_text_file).stem}_simple.txt"
-            diarization_source = diarization_audio_file or audio_file
-            self._save_simple_transcript(simple_file, result, diarization_source)
-            logger.info(f"간단한 전사 파일 생성: {simple_file}")
+            if self.enable_speaker_diarization:
+                diarization_source = diarization_audio_file or audio_file
+                self._save_simple_transcript(simple_file, result, diarization_source)
+                logger.info(f"간단한 전사 파일 생성 (화자분리 포함): {simple_file}")
+            else:
+                self._save_simple_transcript(simple_file, result, None)
+                logger.info(f"간단한 전사 파일 생성 (화자분리 제외): {simple_file}")
             
             # SRT 자막 파일 생성 (요청된 경우)
             if srt_file:
-                diarization_source = diarization_audio_file or audio_file
-                self._save_srt_file(srt_file, result, diarization_source)
-                logger.info(f"SRT 자막 파일 생성: {srt_file}")
+                if self.enable_speaker_diarization:
+                    diarization_source = diarization_audio_file or audio_file
+                    self._save_srt_file(srt_file, result, diarization_source)
+                    logger.info(f"SRT 자막 파일 생성 (화자분리 포함): {srt_file}")
+                else:
+                    self._save_srt_file(srt_file, result, None)
+                    logger.info(f"SRT 자막 파일 생성 (화자분리 제외): {srt_file}")
             
             logger.info(f"STT 처리 완료: {output_text_file}")
             logger.info(f"인식된 텍스트: {transcribed_text[:100]}...")

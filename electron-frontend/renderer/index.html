@@ -17,26 +17,11 @@
                     <i class="fas fa-microphone-alt"></i>
                     <h1>Audio Translation</h1>
                 </div>
-                <div class="server-status" id="serverStatus">
-                    <div class="status-indicator" id="statusIndicator"></div>
-                    <span id="statusText">서버 연결 확인 중...</span>
-                </div>
             </div>
         </header>
 
         <!-- 메인 컨텐츠 -->
         <main class="main-content">
-            <!-- 서버 설정 패널 -->
-            <div class="panel server-panel">
-                <h2><i class="fas fa-server"></i> 서버 설정</h2>
-                <div class="input-group">
-                    <label for="serverUrl">FastAPI 서버 URL:</label>
-                    <input type="text" id="serverUrl" value="http://127.0.0.1:8000" placeholder="http://localhost:8000">
-                    <button id="checkServerBtn" class="btn btn-secondary">
-                        <i class="fas fa-check-circle"></i> 연결 확인
-                    </button>
-                </div>
-            </div>
 
             <!-- 파일 선택 패널 -->
             <div class="panel file-panel">
@@ -64,45 +49,64 @@
                     </div>
                 </div>
 
-                <!-- 최대 화자 수 설정 -->
-                <div class="input-group">
-                    <label for="maxSpeakers">최대 화자 수:</label>
-                    <select id="maxSpeakers">
-                        <option value="1">1명</option>
-                        <option value="2" selected>2명</option>
-                        <option value="3">3명</option>
-                        <option value="4">4명</option>
-                        <option value="5">5명</option>
-                        <option value="6">6명</option>
-                        <option value="7">7명</option>
-                        <option value="8">8명</option>
-                        <option value="9">9명</option>
-                        <option value="10">10명</option>
-                    </select>
-                </div>
             </div>
 
             <!-- 변환 및 처리 패널 -->
             <div class="panel processing-panel">
                 <h2><i class="fas fa-cogs"></i> 처리 옵션</h2>
                 
-                <!-- 처리 모드 선택 -->
-                <div class="processing-modes">
-                    <div class="mode-selector">
-                        <input type="radio" id="sttOnly" name="processingMode" value="transcribe" checked>
-                        <label for="sttOnly">
-                            <i class="fas fa-microphone"></i>
-                            <span>음성 인식만</span>
-                            <small>오디오를 텍스트로 변환</small>
-                        </label>
+                <!-- 처리 옵션 그리드 -->
+                <div class="options-grid">
+                    <!-- 처리 옵션 열 -->
+                    <div class="option-column">
+                        <h3>처리 옵션</h3>
+                        <div class="column-buttons">
+                            <button type="button" class="round-square-btn processing-btn active" data-mode="transcribe" id="sttOnlyBtn">
+                                <i class="fas fa-microphone"></i>
+                                <span>음성인식만</span>
+                            </button>
+                            <button type="button" class="round-square-btn processing-btn" data-mode="audio-to-translation" id="fullPipelineBtn">
+                                <i class="fas fa-language"></i>
+                                <span>음성인식+번역</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="mode-selector">
-                        <input type="radio" id="fullPipeline" name="processingMode" value="audio-to-translation">
-                        <label for="fullPipeline">
-                            <i class="fas fa-language"></i>
-                            <span>음성 인식 + 번역</span>
-                            <small>오디오를 텍스트로 변환 후 번역</small>
-                        </label>
+
+                    <!-- 고급 옵션 열 -->
+                    <div class="option-column">
+                        <h3>고급 옵션</h3>
+                        <div class="column-buttons">
+                            <button type="button" class="round-square-btn option-btn active" data-option="speaker-diarization" id="speakerDiarizationBtn">
+                                <i class="fas fa-users"></i>
+                                <span>화자분리</span>
+                            </button>
+                            <button type="button" class="round-square-btn option-btn active" data-option="timestamps" id="timestampsBtn">
+                                <i class="fas fa-clock"></i>
+                                <span>타임스탬프</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 최대 화자수 열 -->
+                    <div class="option-column">
+                        <h3>최대화자수</h3>
+                        <div class="column-buttons">
+                            <div class="speaker-count-display">
+                                <span class="count-number" id="speakerCountDisplay">2명</span>
+                            </div>
+                            <select id="maxSpeakers" class="speaker-select">
+                                <option value="1">1명</option>
+                                <option value="2" selected>2명</option>
+                                <option value="3">3명</option>
+                                <option value="4">4명</option>
+                                <option value="5">5명</option>
+                                <option value="6">6명</option>
+                                <option value="7">7명</option>
+                                <option value="8">8명</option>
+                                <option value="9">9명</option>
+                                <option value="10">10명</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -141,7 +145,7 @@
             </div>
 
             <!-- 진행률 패널 -->
-            <div class="panel progress-panel" id="progressPanel" style="display: none;">
+            <div class="panel progress-panel" id="progressPanel">
                 <h2><i class="fas fa-tasks"></i> 처리 진행률</h2>
                 
                 <!-- 변환 진행률 -->
@@ -180,47 +184,50 @@
             </div>
 
             <!-- 결과 패널 -->
-            <div class="panel results-panel" id="resultsPanel" style="display: none;">
+            <div class="panel results-panel" id="resultsPanel">
                 <h2><i class="fas fa-clipboard-list"></i> 처리 결과</h2>
                 
-                <!-- STT 결과 -->
-                <div class="result-section">
-                    <div class="result-header">
-                        <h3><i class="fas fa-microphone"></i> 음성 인식 결과</h3>
-                        <div class="result-meta">
-                            <span class="detected-lang" id="detectedLang"></span>
-                            <span class="processing-time" id="sttTime"></span>
+                <!-- 결과 컨테이너 (좌우 배치) -->
+                <div class="results-container">
+                    <!-- STT 결과 -->
+                    <div class="result-section left-result">
+                        <div class="result-header">
+                            <h3><i class="fas fa-microphone"></i> 음성 인식 결과</h3>
+                            <div class="result-meta">
+                                <span class="detected-lang" id="detectedLang"></span>
+                                <span class="processing-time" id="sttTime"></span>
+                            </div>
+                        </div>
+                        <div class="result-content">
+                            <textarea id="sttResult" readonly placeholder="음성 인식 결과가 여기에 표시됩니다..."></textarea>
+                            <button class="copy-btn" onclick="copyToClipboard('sttResult')">
+                                <i class="fas fa-copy"></i> 복사
+                            </button>
                         </div>
                     </div>
-                    <div class="result-content">
-                        <textarea id="sttResult" readonly placeholder="음성 인식 결과가 여기에 표시됩니다..."></textarea>
-                        <button class="copy-btn" onclick="copyToClipboard('sttResult')">
-                            <i class="fas fa-copy"></i> 복사
-                        </button>
-                    </div>
-                </div>
 
-                <!-- 번역 결과 (풀 파이프라인 모드일 때만 표시) -->
-                <div class="result-section" id="translationResult" style="display: none;">
-                    <div class="result-header">
-                        <h3><i class="fas fa-language"></i> 번역 결과</h3>
-                        <div class="result-meta">
-                            <span class="translation-info" id="translationInfo"></span>
-                            <span class="processing-time" id="translationTime"></span>
+                    <!-- 번역 결과 -->
+                    <div class="result-section right-result" id="translationResult">
+                        <div class="result-header">
+                            <h3><i class="fas fa-language"></i> 번역 결과</h3>
+                            <div class="result-meta">
+                                <span class="translation-info" id="translationInfo"></span>
+                                <span class="processing-time" id="translationTime"></span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="result-content">
-                        <textarea id="translatedResult" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
-                        <button class="copy-btn" onclick="copyToClipboard('translatedResult')">
-                            <i class="fas fa-copy"></i> 복사
-                        </button>
+                        <div class="result-content">
+                            <textarea id="translatedResult" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
+                            <button class="copy-btn" onclick="copyToClipboard('translatedResult')">
+                                <i class="fas fa-copy"></i> 복사
+                            </button>
+                        </div>
                     </div>
                 </div>
 
                 <!-- 액션 버튼들 -->
                 <div class="result-actions">
-                    <button id="newProcessBtn" class="btn btn-primary">
-                        <i class="fas fa-plus"></i> 새 파일 처리
+                    <button id="newProcessBtn" class="btn btn-danger">
+                        <i class="fas fa-redo"></i> 초기화
                     </button>
                     <button id="saveResultBtn" class="btn btn-secondary">
                         <i class="fas fa-save"></i> 결과 저장
