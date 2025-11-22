@@ -112,6 +112,7 @@
 
                 <!-- 번역 설정 (풀 파이프라인 모드일 때만 표시) -->
                 <div class="translation-settings" id="translationSettings" style="display: none;">
+                    <!-- 언어 설정 -->
                     <div class="input-row">
                         <div class="input-group">
                             <label for="sourceLang">원본 언어:</label>
@@ -120,17 +121,43 @@
                                 <option value="ko">한국어</option>
                                 <option value="ja">일본어</option>
                                 <option value="en">영어</option>
-                                <option value="zh">중국어</option>
                             </select>
                         </div>
                         <div class="input-group">
                             <label for="targetLang">번역 언어:</label>
                             <select id="targetLang">
                                 <option value="ko">한국어</option>
-                                <option value="ja">일본어</option>
+                                <option value="ja" selected>일본어</option>
                                 <option value="en">영어</option>
-                                <option value="zh">중국어</option>
                             </select>
+                        </div>
+                    </div>
+                    
+                    <!-- 번역 모델 선택 -->
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="translationModel">번역 모델:</label>
+                            <select id="translationModel">
+                                <option value="qwen-local" selected>🏠 Qwen3-8B (로컬)</option>
+                                <option value="openai">🤖 OpenAI GPT-4</option>
+                                <option value="gemini">🌟 Google Gemini</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <small class="model-description" id="modelDescription">
+                                로컬 모델 - 무료, 빠름, 인터넷 불필요
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- API 키 입력 (OpenAI/Gemini 선택 시에만 표시) -->
+                    <div class="input-row" id="apiKeyRow" style="display: none;">
+                        <div class="input-group full-width">
+                            <label for="apiKey">🔑 API 키:</label>
+                            <input type="password" id="apiKey" placeholder="API 키를 입력하세요..." />
+                            <small class="input-help" id="apiKeyHelp">
+                                OpenAI: sk-... 형태 / Gemini: AIza... 형태
+                            </small>
                         </div>
                     </div>
                 </div>

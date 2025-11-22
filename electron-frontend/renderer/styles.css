@@ -5,6 +5,42 @@
     box-sizing: border-box;
 }
 
+/* 새로운 UI 요소 스타일 */
+.model-description {
+    color: #666;
+    font-style: italic;
+    margin-top: 4px;
+    font-size: 0.9em;
+}
+
+.input-help {
+    color: #888;
+    font-size: 0.85em;
+    margin-top: 4px;
+    display: block;
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}
+
+#apiKey {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+    background: #f9f9f9;
+    transition: border-color 0.3s ease;
+}
+
+#apiKey:focus {
+    outline: none;
+    border-color: #667eea;
+    background: #fff;
+}
+
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

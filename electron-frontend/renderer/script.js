@@ -21,6 +21,11 @@ const elements = {
     translationSettings: document.getElementById('translationSettings'),
     sourceLang: document.getElementById('sourceLang'),
     targetLang: document.getElementById('targetLang'),
+    translationModel: document.getElementById('translationModel'),
+    apiKey: document.getElementById('apiKey'),
+    apiKeyRow: document.getElementById('apiKeyRow'),
+    modelDescription: document.getElementById('modelDescription'),
+    apiKeyHelp: document.getElementById('apiKeyHelp'),
     maxSpeakers: document.getElementById('maxSpeakers'),
     speakerCountDisplay: document.getElementById('speakerCountDisplay'),
     enableSpeakerDiarization: document.getElementById('enableSpeakerDiarization'),
@@ -81,11 +86,19 @@ function initializeApp() {
         updateSpeakerCountDisplay();
     });
     
+    // 번역 모델 선택 이벤트
+    elements.translationModel.addEventListener('change', () => {
+        updateModelSettings();
+    });
+    
     // 파일 선택 상태에 따른 버튼 활성화
     updateProcessButton();
     
     // 초기 화자수 표시 업데이트
     updateSpeakerCountDisplay();
+    
+    // 초기 모델 설정 업데이트
+    updateModelSettings();
 }
 
 function setProcessingMode(mode) {
@@ -135,6 +148,34 @@ function updateSpeakerCountDisplay() {
     } else {
         console.error('speakerCountDisplay 요소를 찾을 수 없습니다');
     }
+}
+
+function updateModelSettings() {
+    const selectedModel = elements.translationModel.value;
+    
+    if (selectedModel === 'qwen-local') {
+        elements.apiKeyRow.style.display = 'none';
+        elements.modelDescription.textContent = '로컬 모델 - 무료, 빠름, 인터넷 불필요';
+    } else if (selectedModel === 'openai') {
+        elements.apiKeyRow.style.display = 'block';
+        elements.modelDescription.textContent = 'OpenAI GPT-4 - 고품질, API 키 필요';
+        elements.apiKeyHelp.textContent = 'OpenAI API 키 (sk-...로 시작)';
+        elements.apiKey.placeholder = 'sk-proj-...';
+    } else if (selectedModel === 'gemini') {
+        elements.apiKeyRow.style.display = 'block';
+        elements.modelDescription.textContent = 'Google Gemini - 빠름, API 키 필요';
+        elements.apiKeyHelp.textContent = 'Google AI Studio API 키 (AIza...로 시작)';
+        elements.apiKey.placeholder = 'AIza...';
+    }
+}
+
+function getTranslationSettings() {
+    return {
+        model_type: elements.translationModel.value,
+        api_key: elements.apiKey.value || null,
+        source_lang: elements.sourceLang.value,
+        target_lang: elements.targetLang.value
+    };
 }
 
 function setupEventListeners() {
@@ -348,23 +389,31 @@ async function sendToSTT(serverUrl) {
     }
 }
 
-// STT 결과를 번역 (새로 추가)
+// STT 결과를 번역 (수정됨 - 모델 선택 지원)
 async function translateSTTResult(serverUrl) {
     try {
         if (!sttResultData || !sttResultData.text) {
             throw new Error('STT 결과가 없습니다.');
         }
         
-        const sourceLang = elements.sourceLang.value;
-        const targetLang = elements.targetLang.value;
+        // 번역 설정 가져오기 (모델 타입, API 키 포함)
+        const translationSettings = getTranslationSettings();
+        
+        // API 키 검증 (OpenAI/Gemini 사용 시)
+        if ((translationSettings.model_type === 'openai' || translationSettings.model_type === 'gemini') 
+            && !translationSettings.api_key) {
+            throw new Error(`${translationSettings.model_type} 모델 사용 시 API 키가 필요합니다.`);
+        }
         
         elements.processingStatus.textContent = '번역 중...';
-        console.log(` 번역 시작: ${sourceLang} → ${targetLang}`);
+        console.log(` 번역 시작: ${translationSettings.source_lang} → ${translationSettings.target_lang} (모델: ${translationSettings.model_type})`);
         
-        const result = await window.electronAPI.translateText(
+        const result = await window.electronAPI.translateTextWithModel(
             sttResultData.text,
-            sourceLang,
-            targetLang,
+            translationSettings.source_lang,
+            translationSettings.target_lang,
+            translationSettings.model_type,
+            translationSettings.api_key,
             serverUrl
         );
         
