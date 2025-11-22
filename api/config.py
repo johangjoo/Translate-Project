@@ -27,7 +27,6 @@ SUPPORTED_AUDIO_FORMATS = [
 ]
 # 모델 경로
 TRANSLATION_BASE_MODEL = BASE_DIR / "qwen3-8b-lora-10ratio"
-TRANSLATION_LORA_MODEL = BASE_DIR / "qwen3-8b-translation-lora"
 
 # Whisper 모델 설정
 WHISPER_MODEL_SIZE = "large-v3"  # tiny, base, small, medium, large, large-v3

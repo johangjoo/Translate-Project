@@ -6,6 +6,11 @@ const axios = require('axios');
 const FormData = require('form-data');
 const os = require('os');
 
+// GPU 프로세스 오류 방지 플래그 추가
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+
 // 개발 모드 확인
 const isDev = process.argv.includes('--dev');
 
@@ -104,6 +109,8 @@ function createWindow() {
 
   // 윈도우가 준비되면 보여주기
   mainWindow.once('ready-to-show', () => {
+    // 서버 연결 확인
+    checkServerConnection();
     mainWindow.show();
   });
 
@@ -111,6 +118,46 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+}
+
+// 서버 연결 확인 함수
+async function checkServerConnection() {
+  const serverUrl = 'http://127.0.0.1:8000';
+  const maxRetries = 3;
+  const retryDelay = 2000; // 2초
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await axios.get(`${serverUrl}/api/v1/health`, { 
+        timeout: 3000 
+      });
+      
+      if (response.status === 200) {
+        console.log('✅ 서버 연결 성공');
+        return true;
+      }
+    } catch (error) {
+      console.log(`서버 연결 시도 ${i + 1}/${maxRetries} 실패`);
+      
+      if (i < maxRetries - 1) {
+        // 마지막 시도가 아니면 잠시 대기
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+  }
+  
+  // 모든 시도 실패 시 경고 메시지 표시 후 앱 종료
+  console.error('❌ 서버 연결 실패');
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'error',
+    title: '서버 연결 실패',
+    message: '백엔드 서버에 연결할 수 없습니다.',
+    detail: `서버가 실행 중인지 확인하세요.\n\n서버 URL: ${serverUrl}\n\n앱을 종료합니다.`,
+    buttons: ['확인']
+  });
+  
+  app.quit();
+  return false;
 }
 
 // 앱이 준비되면 윈도우 생성

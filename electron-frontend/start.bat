@@ -1,40 +1,43 @@
 @echo off
+chcp 65001 >nul
 echo ========================================
-echo Audio Translation Frontend ½ÃÀÛ
+echo Brewer Translation Frontend ì‹œìž‘
 echo ========================================
 echo.
 
-:: ÀÇÁ¸¼º È®ÀÎ
+:: ì˜ì¡´ì„± í™•ì¸
 if not exist "node_modules" (
-    echo ? node_modules Æú´õ°¡ ¾ø½À´Ï´Ù.
-    echo    ¸ÕÀú install.batÀ» ½ÇÇàÇÏ¿© ÀÇÁ¸¼ºÀ» ¼³Ä¡ÇÏ¼¼¿ä.
+    echo âŒ node_modules í´ë”ê°€ ì—†ìŠµë‹ˆë‹¤.
+    echo    ë¨¼ì € install.batì„ ì‹¤í–‰í•˜ì—¬ ì˜ì¡´ì„±ì„ ì„¤ì¹˜í•˜ì„¸ìš”.
     pause
     exit /b 1
 )
 
-:: ¹é¿£µå ¼­¹ö »óÅÂ È®ÀÎ
-echo ¹é¿£µå ¼­¹ö »óÅÂ È®ÀÎ Áß...
+:: ë°±ì—”ë“œ ì„œë²„ ìƒíƒœ í™•ì¸ ë° ìžë™ ì‹œìž‘
+echo ë°±ì—”ë“œ ì„œë²„ ìƒíƒœ í™•ì¸ ì¤‘...
 curl -s http://localhost:8000/api/v1/health >nul 2>&1
 if %errorlevel% neq 0 (
-    echo??  ¹é¿£µå ¼­¹ö°¡ ½ÇÇàµÇÁö ¾ÊÀº °Í °°½À´Ï´Ù.
-    echo.
-    echo ¹é¿£µå ¼­¹ö¸¦ ¸ÕÀú ½ÃÀÛÇÏ½Ã°Ú½À´Ï±î? (Y/N)
-    set /p startServer=
-    if /i "%startServer%"=="Y" (
-        echo »õ Ã¢¿¡¼­ ¹é¿£µå ¼­¹ö¸¦ ½ÃÀÛÇÕ´Ï´Ù...
-        start cmd /k "cd .. && python run_server.py"
-        echo ¼­¹ö°¡ ½ÃÀÛµÉ ¶§±îÁö Àá½Ã ±â´Ù¸³´Ï´Ù...
-        timeout /t 10 /nobreak >nul
+    echo âš ï¸  ë°±ì—”ë“œ ì„œë²„ê°€ ì‹¤í–‰ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤. ìžë™ìœ¼ë¡œ ì‹œìž‘í•©ë‹ˆë‹¤...
+    start cmd /k "cd .. && python run_server.py"
+    echo ì„œë²„ê°€ ì‹œìž‘ë  ë•Œê¹Œì§€ ìž ì‹œ ê¸°ë‹¤ë¦½ë‹ˆë‹¤...
+    timeout /t 10 /nobreak >nul
+    
+    :: ì„œë²„ ì‹œìž‘ í›„ ë‹¤ì‹œ í™•ì¸
+    curl -s http://localhost:8000/api/v1/health >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo âš ï¸  ì„œë²„ ì‹œìž‘ ì¤‘... ìž ì‹œ í›„ ì•±ì´ ì‹œìž‘ë©ë‹ˆë‹¤.
+    ) else (
+        echo âœ… ë°±ì—”ë“œ ì„œë²„ê°€ ì‹œìž‘ë˜ì—ˆìŠµë‹ˆë‹¤.
     )
 ) else (
-    echo ? ¹é¿£µå ¼­¹ö°¡ ½ÇÇà ÁßÀÔ´Ï´Ù.
+    echo âœ… ë°±ì—”ë“œ ì„œë²„ê°€ ì‹¤í–‰ ì¤‘ìž…ë‹ˆë‹¤.
 )
 echo.
 
-:: Electron ¾Û ½ÃÀÛ
-echo ?? Electron ¾ÛÀ» ½ÃÀÛÇÕ´Ï´Ù...
+:: Electron ì•± ì‹œìž‘
+echo ðŸš€ Electron ì•±ì„ ì‹œìž‘í•©ë‹ˆë‹¤...
 npm start
 
 echo.
-echo ¾ÛÀÌ Á¾·áµÇ¾ú½À´Ï´Ù.
+echo ì•±ì´ ì¢…ë£Œë˜ì—ˆìŠµë‹ˆë‹¤.
 pause

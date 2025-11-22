@@ -36,8 +36,8 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0"
   },
   "build": {
-    "appId": "com.example.audio-translation",
-    "productName": "Audio Translation",
+    "appId": "com.example.brewer-translation",
+    "productName": "Brewer Translation",
     "directories": {
       "output": "dist"
     },
