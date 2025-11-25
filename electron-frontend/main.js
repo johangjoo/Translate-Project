@@ -213,6 +213,52 @@ ipcMain.handle('select-save-location', async () => {
   return result;
 });
 
+// TXT 저장 위치 선택
+ipcMain.handle('select-save-txt-location', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [
+      { name: 'Text Files', extensions: ['txt'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    defaultPath: 'translation_result.txt'
+  });
+  
+  return result;
+});
+
+// TXT 파일 저장
+ipcMain.handle('save-txt-file', async (event, filePath, content) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// SRT 저장 위치 선택
+ipcMain.handle('select-save-srt-location', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    filters: [
+      { name: 'SRT Files', extensions: ['srt'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    defaultPath: 'subtitle.srt'
+  });
+  
+  return result;
+});
+
+// SRT 파일 저장
+ipcMain.handle('save-srt-file', async (event, filePath, content) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // ✅ FFmpeg를 사용한 오디오 변환 (완전 개선판)
 ipcMain.handle('convert-to-wav', async (event, inputPath) => {
   return new Promise((resolve, reject) => {

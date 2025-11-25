@@ -208,7 +208,7 @@ def main():
     print(f"✅ 총 성공: {total_success:,}개")
     print(f"   ├─ 한국어→일본어: {total_ko_to_ja:,}개")
     print(f"   └─ 일본어→한국어: {total_ja_to_ko:,}개")
-    print(f"❌ 총 실패: {fail_count:,}개")
+    print(f"❌ 총 실패: {total_fail:,}개")
     print(f"\n💡 원본 파일들은 .backup_YYYYMMDD_HHMMSS 형식으로 백업되었습니다.")
     print("=" * 70)
 

@@ -318,7 +318,7 @@ class AudioPipeline:
                 logger.warning(f"오디오 메타데이터 확인 실패, 단일 파일로 처리합니다: {e}")
             
             # chunk 기준 (초 단위, 10분)
-            chunk_duration = 600.0
+            chunk_duration = 10800.0
             
             if total_duration is None or total_duration <= chunk_duration:
                 # 기존 방식: 전체 파일을 한 번에 처리

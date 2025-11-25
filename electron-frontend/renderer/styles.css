@@ -470,6 +470,7 @@ body {
 }
 
 /* 번역 설정 */
+.stt-language-settings,
 .translation-settings {
     padding: 1rem;
     background: rgba(102, 126, 234, 0.05);

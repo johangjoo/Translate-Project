@@ -110,6 +110,26 @@
                     </div>
                 </div>
 
+                <!-- STT 언어 설정 (음성인식만 모드일 때만 표시) -->
+                <div class="stt-language-settings" id="sttLanguageSettings" style="display: none;">
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label for="sttLanguage">인식 언어:</label>
+                            <select id="sttLanguage">
+                                <option value="">자동 감지</option>
+                                <option value="ko" selected>한국어</option>
+                                <option value="ja">일본어</option>
+                                <option value="en">영어</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <small class="input-help">
+                                언어를 선택하면 더 정확한 인식이 가능합니다. 자동 감지도 가능합니다.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 번역 설정 (풀 파이프라인 모드일 때만 표시) -->
                 <div class="translation-settings" id="translationSettings" style="display: none;">
                     <!-- 언어 설정 -->
@@ -255,8 +275,11 @@
                     <button id="newProcessBtn" class="btn btn-danger">
                         <i class="fas fa-redo"></i> 초기화
                     </button>
-                    <button id="saveResultBtn" class="btn btn-secondary">
-                        <i class="fas fa-save"></i> 결과 저장
+                    <button id="saveTxtBtn" class="btn btn-secondary">
+                        <i class="fas fa-save"></i> txt로 저장
+                    </button>
+                    <button id="saveSrtBtn" class="btn btn-secondary">
+                        <i class="fas fa-save"></i> srt로 저장
                     </button>
                 </div>
             </div>

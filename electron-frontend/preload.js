@@ -8,6 +8,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 저장 위치 선택
   selectSaveLocation: () => ipcRenderer.invoke('select-save-location'),
   
+  // TXT 저장 위치 선택
+  selectSaveTxtLocation: () => ipcRenderer.invoke('select-save-txt-location'),
+  
+  // TXT 파일 저장
+  saveTxtFile: (filePath, content) => ipcRenderer.invoke('save-txt-file', filePath, content),
+  
+  // SRT 저장 위치 선택
+  selectSaveSrtLocation: () => ipcRenderer.invoke('select-save-srt-location'),
+  
+  // SRT 파일 저장
+  saveSrtFile: (filePath, content) => ipcRenderer.invoke('save-srt-file', filePath, content),
+  
   // 오디오 변환 (outputPath 파라미터 제거)
   convertToWav: (inputPath) => ipcRenderer.invoke('convert-to-wav', inputPath),
   

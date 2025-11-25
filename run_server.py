@@ -24,16 +24,16 @@ def check_environment():
     
     # 1. 프로젝트 루트 확인
     PROJECT_ROOT = Path(__file__).resolve().parent
-    print(f"📂 프로젝트 루트: {PROJECT_ROOT}")
+    print(f"프로젝트 루트: {PROJECT_ROOT}")
     
     # 2. api 폴더 확인
     api_folder = PROJECT_ROOT / "api"
     if not api_folder.exists():
-        print(f"\n❌ 오류: api 폴더를 찾을 수 없습니다!")
+        print(f"\n오류: api 폴더를 찾을 수 없습니다!")
         print(f"   예상 위치: {api_folder}")
         return False
     
-    print(f"✅ api 폴더 확인: {api_folder}")
+    print(f"api 폴더 확인: {api_folder}")
     
     # 3. 필수 파일 확인
     required_files = [

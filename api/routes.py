@@ -133,23 +133,8 @@ async def process_audio(
     save_outputs: bool = Form(True, description="결과 파일 저장"),
     max_speakers: int = Form(2, description="최대 화자 수 (1~10)")
 ):
-    """
-    🎵 통합 오디오 처리 파이프라인
-    
-    **기능:**
-    1. 🔇 노이즈 제거 (SpeechBrain)
-    2. 🎤 STT (Whisper)
-    3. 👥 화자 분리
-    4. 📝 자막 생성 (SRT)
-    
-    **옵션:**
-    - enable_denoise: 노이즈 제거만 원하면 transcription=false
-    - enable_transcription: STT만 원하면 denoise=false
-    - enable_diarization: 화자분리 제외하려면 false
-    """
-    # 요청마다 새로운 AudioPipeline 인스턴스를 생성하고,
-    # 내부에서 Whisper / 노이즈 제거 / 화자분리 모델을
-    # "필요할 때만" 로드해서 사용한 뒤 가능한 한 언로드한다.
+   
+   
     pipeline: AudioPipeline = AudioPipeline(
         use_gpu=True,
         target_language=language or None,
@@ -178,7 +163,7 @@ async def process_audio(
     try:
         temp_path = save_upload_file(audio_file)
         print(f"\n{'='*60}")
-        print(f"📁 파일 업로드: {audio_file.filename}")
+        print(f"파일 업로드: {audio_file.filename}")
         print(f"{'='*60}\n")
         
         work_dir = UPLOAD_DIR / f"work_{uuid.uuid4().hex[:8]}"
@@ -188,7 +173,6 @@ async def process_audio(
         
         # 1. 노이즈 제거
         if enable_denoise:
-            print("🔇 노이즈 제거 시작...")
             denoise_start = time.time()
             
             denoised_file = work_dir / f"{Path(audio_file.filename).stem}_denoised.wav"
@@ -202,11 +186,9 @@ async def process_audio(
             result["denoised_filename"] = denoised_file.name
             result["denoise_time"] = round(timing["denoise"], 2)
             
-            print(f"✅ 노이즈 제거 완료 ({timing['denoise']:.2f}초)\n")
             
             current_file = str(denoised_file)
         else:
-            print("⏭️  노이즈 제거 스킵\n")
             result["denoised_filename"] = None
             result["denoise_time"] = None
         
@@ -214,7 +196,6 @@ async def process_audio(
         # 2. STT + 화자분리 섹션에서 수정 (224줄 근처)
 
         if enable_transcription:
-            print("🎤 음성 전사 시작...")
             transcription_start = time.time()
             
             transcript_result = pipeline.transcribe_uploaded_wav(
@@ -237,7 +218,6 @@ async def process_audio(
             result["transcription_time"] = round(timing["transcription"], 2)
             
         else:
-            print("⏭️  음성 전사 스킵\n")
             result["text"] = None
             result["detected_language"] = None
             result["transcription_time"] = None
@@ -250,14 +230,11 @@ async def process_audio(
         result["processing_time"] = round(total_time, 2)
         result["timing"] = {k: round(v, 2) for k, v in timing.items()}
         
-        print("="*60)
-        print(f"🎉 처리 완료! ({total_time:.2f}초)")
-        print("="*60 + "\n")
         
         return AudioProcessResponse(**result)
 
     except Exception as e:
-        print(f"\n❌ 오류: {str(e)}\n")
+        print(f"\n오류: {str(e)}\n")
         raise HTTPException(status_code=500, detail=str(e))
     
     finally:
@@ -280,21 +257,7 @@ async def translate_text_only(
     model_type: str = Form("qwen-local", description="번역 모델 타입 (qwen-local, openai, gemini)"),
     api_key: Optional[str] = Form(None, description="API 키 (openai/gemini 사용 시 필수)")
 ):
-    """
-    📝 텍스트 번역 (다중 모델 지원)
-    
-    **지원 모델 (고정):**
-    - `qwen-local`: 로컬 Qwen3-8b LoRA 10ratio 모델 (기본값)
-    - `openai`: OpenAI GPT-5.1 모델 (api_key 필수)
-    - `gemini`: Google Gemini 3 Flash 모델 (api_key 필수)
-    
-    **지원 언어:** ko ↔ ja ↔ en (양방향)
-    
-    **예시:**
-    - 로컬 모델: model_type=qwen-local
-    - OpenAI: model_type=openai, api_key=sk-...
-    - Gemini: model_type=gemini, api_key=AIza...
-    """
+   
     start_time = time.time()
     
     try:
