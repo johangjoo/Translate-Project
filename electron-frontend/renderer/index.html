@@ -157,9 +157,16 @@
                         <div class="input-group">
                             <label for="translationModel">번역 모델:</label>
                             <select id="translationModel">
-                                <option value="qwen-local" selected>Qwen3 (무료)</option>
-                                <option value="openai">OpenAI GPT-5.1</option>
-                                <option value="gemini">Google Gemini 2.5 flash</option>
+                                <optgroup label="Qwen 로컬 모델 (무료)">
+                                    <option value="qwen-14b-lora" selected>Qwen3-14B LoRA (기본)</option>
+                                    <option value="qwen-8b-base">Qwen3-8B Base</option>
+                                    <option value="qwen-8b-lora">Qwen3-8B LoRA (10ratio)</option>
+                                    <option value="qwen-14b-base">Qwen3-14B Base</option>
+                                </optgroup>
+                                <optgroup label="API 모델 (유료)">
+                                    <option value="openai">OpenAI GPT-5.1</option>
+                                    <option value="gemini">Google Gemini 2.5 flash</option>
+                                </optgroup>
                             </select>
                         </div>
                         <div class="input-group">
@@ -194,8 +201,8 @@
             <div class="panel progress-panel" id="progressPanel">
                 <h2><i class="fas fa-tasks"></i> 처리 진행률</h2>
                 
-                <!-- 변환 진행률 -->
-                <div class="progress-section">
+                <!-- 변환 진행률 (숨김처리) -->
+                <div class="progress-section" style="display: none;">
                     <div class="progress-header">
                         <span class="progress-title">1. 오디오 변환 (WAV)</span>
                         <span class="progress-status" id="conversionStatus">대기 중</span>
@@ -206,8 +213,8 @@
                     <div class="progress-details" id="conversionDetails"></div>
                 </div>
 
-                <!-- 업로드 진행률 -->
-                <div class="progress-section">
+                <!-- 업로드 진행률 (숨김처리) -->
+                <div class="progress-section" style="display: none;">
                     <div class="progress-header">
                         <span class="progress-title">2. 서버 업로드</span>
                         <span class="progress-status" id="uploadStatus">대기 중</span>
@@ -220,7 +227,7 @@
                 <!-- 처리 진행률 -->
                 <div class="progress-section">
                     <div class="progress-header">
-                        <span class="progress-title">3. AI 처리</span>
+                        <span class="progress-title">AI 처리</span>
                         <span class="progress-status" id="processingStatus">대기 중</span>
                     </div>
                     <div class="progress-bar">
@@ -245,7 +252,7 @@
                             </div>
                         </div>
                         <div class="result-content">
-                            <textarea id="sttResult" readonly placeholder="음성 인식 결과가 여기에 표시됩니다..."></textarea>
+                            <textarea id="sttResult" placeholder="음성 인식 결과가 여기에 표시됩니다... (드래그하여 붙여넣기 가능)"></textarea>
                             <button class="copy-btn" onclick="copyToClipboard('sttResult')">
                                 <i class="fas fa-copy"></i> 복사
                             </button>
@@ -262,7 +269,7 @@
                             </div>
                         </div>
                         <div class="result-content">
-                            <textarea id="translatedResult" readonly placeholder="번역 결과가 여기에 표시됩니다..."></textarea>
+                            <textarea id="translatedResult" placeholder="번역 결과가 여기에 표시됩니다... (드래그하여 붙여넣기 가능)"></textarea>
                             <button class="copy-btn" onclick="copyToClipboard('translatedResult')">
                                 <i class="fas fa-copy"></i> 복사
                             </button>

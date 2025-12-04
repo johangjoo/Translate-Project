@@ -272,7 +272,7 @@ class AudioPipeline:
             logger.error(f"노이즈 제거 실패 ({input_file}): {e}")
             raise
     
-    def transcribe_audio(self, audio_file, output_text_file, srt_file=None, diarization_audio_file=None):
+    def transcribe_audio(self, audio_file, output_text_file, srt_file=None, diarization_audio_file=None, enable_timestamps=True):
         """
         오디오 파일을 텍스트로 변환 (STT)
         
@@ -416,11 +416,24 @@ class AudioPipeline:
             # 타임스탬프가 포함된 텍스트 파일로 저장
             self._save_transcript_with_timestamps(audio_file, output_text_file, result)
             
-            # 간단한 타임스탬프+화자 정보 파일 생성
+            # 간단한 타임스탬프+화자 정보 파일 생성 (옵션에 따라)
             simple_file = Path(output_text_file).parent / f"{Path(output_text_file).stem}_simple.txt"
-            diarization_source = diarization_audio_file or audio_file
-            self._save_simple_transcript(simple_file, result, diarization_source)
-            logger.info(f"간단한 전사 파일 생성: {simple_file}")
+            if enable_timestamps and diarization_audio_file:
+                # 타임스탬프와 화자분리 모두 활성화
+                self._save_simple_transcript(simple_file, result, diarization_audio_file)
+                logger.info(f"간단한 전사 파일 생성 (타임스탬프+화자분리): {simple_file}")
+            elif enable_timestamps:
+                # 타임스탬프만 활성화
+                self._save_simple_transcript_timestamps_only(simple_file, result)
+                logger.info(f"간단한 전사 파일 생성 (타임스탬프만): {simple_file}")
+            elif diarization_audio_file:
+                # 화자분리만 활성화
+                self._save_simple_transcript_speakers_only(simple_file, result, diarization_audio_file)
+                logger.info(f"간단한 전사 파일 생성 (화자분리만): {simple_file}")
+            else:
+                # 둘 다 비활성화 - 순수 텍스트만
+                self._save_simple_transcript_text_only(simple_file, result)
+                logger.info(f"간단한 전사 파일 생성 (텍스트만): {simple_file}")
             
             # SRT 자막 파일 생성 (요청된 경우)
             if srt_file:
@@ -574,6 +587,66 @@ class AudioPipeline:
             else:
                 # 세그먼트 정보가 없는 경우
                 f.write(f"[00:00.000] 화자A: {result['text'].strip()}\n")
+    
+    def _save_simple_transcript_timestamps_only(self, simple_file, result):
+        """타임스탬프만 포함된 간단한 전사 파일 생성"""
+        with open(simple_file, 'w', encoding='utf-8') as f:
+            if "segments" in result:
+                for segment in result["segments"]:
+                    start_time = self._format_time(segment["start"])
+                    text = segment["text"].strip()
+                    
+                    if not text:
+                        continue
+                    
+                    # [시간] 텍스트 형식으로 저장 (화자 정보 없음)
+                    f.write(f"[{start_time}] {text}\n")
+            else:
+                # 세그먼트 정보가 없는 경우
+                f.write(f"[00:00.000] {result['text'].strip()}\n")
+    
+    def _save_simple_transcript_speakers_only(self, simple_file, result, audio_file):
+        """화자분리만 포함된 간단한 전사 파일 생성"""
+        with open(simple_file, 'w', encoding='utf-8') as f:
+            if "segments" in result:
+                # 음성 특성 기반 화자분리 사용
+                logger.info("음성 특성 기반 화자분리 시작...")
+                # 현재 오디오 파일 정보를 임시 저장
+                self._current_audio_file = audio_file
+                speaker_assignments = self._assign_smart_speakers(result["segments"])
+                # 임시 정보 제거
+                delattr(self, '_current_audio_file')
+                
+                for i, segment in enumerate(result["segments"]):
+                    text = segment["text"].strip()
+                    
+                    if not text:
+                        continue
+                    
+                    # 할당된 화자 사용
+                    speaker_name = speaker_assignments[i]
+                    
+                    # 화자: 텍스트 형식으로 저장 (타임스탬프 없음)
+                    f.write(f"{speaker_name}: {text}\n")
+            else:
+                # 세그먼트 정보가 없는 경우
+                f.write(f"화자A: {result['text'].strip()}\n")
+    
+    def _save_simple_transcript_text_only(self, simple_file, result):
+        """순수 텍스트만 포함된 간단한 전사 파일 생성"""
+        with open(simple_file, 'w', encoding='utf-8') as f:
+            if "segments" in result:
+                for segment in result["segments"]:
+                    text = segment["text"].strip()
+                    
+                    if not text:
+                        continue
+                    
+                    # 순수 텍스트만 저장 (타임스탬프, 화자 정보 없음)
+                    f.write(f"{text}\n")
+            else:
+                # 세그먼트 정보가 없는 경우
+                f.write(f"{result['text'].strip()}\n")
     
     def _assign_smart_speakers(self, segments):
         """화자 분리: WhisperX + pyannote를 우선 사용, 실패 시 기존 음성 특성/규칙 기반 사용"""
@@ -1470,7 +1543,7 @@ class AudioPipeline:
             logger.error(f"파일 처리 실패 ({input_file}): {e}")
             raise
 
-    def transcribe_uploaded_wav(self, wav_path, save_dir=None, create_srt=True):
+    def transcribe_uploaded_wav(self, wav_path, save_dir=None, create_srt=True, enable_diarization=True, enable_timestamps=True):
         """이미 추출된 WAV 파일을 입력으로 받아 전사 및 화자분리를 수행하는 백엔드용 헬퍼
 
         Args:
@@ -1478,6 +1551,8 @@ class AudioPipeline:
             save_dir (str, optional): 결과 파일을 저장할 기본 디렉토리.
                 None 이면 입력 wav 파일과 같은 디렉토리를 사용.
             create_srt (bool): SRT 자막 파일 생성 여부
+            enable_diarization (bool): 화자분리 활성화 여부
+            enable_timestamps (bool): 타임스탬프 활성화 여부
 
         Returns:
             dict: {
@@ -1485,6 +1560,7 @@ class AudioPipeline:
                 "denoised_wav": 노이즈 제거된 wav 경로 (str),
                 "transcript_path": 타임스탬프 포함 전사 txt 경로 (str),
                 "simple_path": 간단 전사(txt, 화자/타임스탬프 포함) 경로 (str),
+                "text_only_path": 텍스트 전용 파일 경로 (str),
                 "srt_path": SRT 자막 경로 또는 None,
             }
         """
@@ -1512,7 +1588,8 @@ class AudioPipeline:
                 str(denoised_file),
                 str(transcript_file),
                 str(srt_file) if srt_file else None,
-                diarization_audio_file=str(wav_path)
+                diarization_audio_file=str(wav_path) if enable_diarization else None,
+                enable_timestamps=enable_timestamps
             )
 
             # transcribe_audio 내부에서 simple 텍스트도 생성됨
@@ -1833,16 +1910,3 @@ def get_memory_stats() -> dict:
     if not torch.cuda.is_available():
         return {"error": "GPU를 사용할 수 없습니다."}
     
-    allocated = torch.cuda.memory_allocated() / 1e9
-    reserved = torch.cuda.memory_reserved() / 1e9
-    total = torch.cuda.get_device_properties(0).total_memory / 1e9
-    free = total - allocated
-    
-    return {
-        "device": torch.cuda.get_device_name(0),
-        "total_gb": round(total, 2),
-        "allocated_gb": round(allocated, 2),
-        "reserved_gb": round(reserved, 2),
-        "free_gb": round(free, 2),
-        "usage_percent": round((allocated / total) * 100, 1)
-    }

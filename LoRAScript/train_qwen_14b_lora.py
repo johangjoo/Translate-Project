@@ -20,7 +20,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 # 설정
 MAX_SEQ_LENGTH = 160
 LOAD_IN_4BIT = True
-SAMPLE_RATIO = 0.2
+SAMPLE_RATIO = 0.1
 
 LORA_R = 16
 LORA_ALPHA = 16
@@ -29,8 +29,8 @@ TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj",
                   "gate_proj", "up_proj", "down_proj"]
 
 MODEL_NAME = "Qwen/Qwen3-14B"
-OUTPUT_DIR = str(PROJECT_ROOT / "qwen3-14b-lora-20ratio")
-NEW_MODEL_NAME = "qwen3-14b-lora-20ratio"
+OUTPUT_DIR = str(PROJECT_ROOT / "qwen3-14b-lora-10ratio")
+NEW_MODEL_NAME = "qwen3-14b-lora-10ratio"
 
 TRAIN_FILE = str(PROJECT_ROOT / "train.jsonl")
 VAL_FILE = str(PROJECT_ROOT / "validation.jsonl")
@@ -157,9 +157,9 @@ sft_args = SFTConfig(
     run_name=NEW_MODEL_NAME,
     
     # 배치 크기
-    per_device_train_batch_size=6,
-    gradient_accumulation_steps=3,
-    per_device_eval_batch_size=4,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=16,
+    per_device_eval_batch_size=2,
     
     # 학습률
     learning_rate=2e-4,

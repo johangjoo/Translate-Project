@@ -153,10 +153,57 @@ class WhisperSTT:
     def unload_model(self):
         """메모리 해제"""
         if self.model is not None:
-            del self.model
-            self.model = None
-            torch.cuda.empty_cache()
-            logger.info("모델 언로드 완료")
+            try:
+                logger.info("🔄 Whisper 모델 GPU 메모리 해제 중...")
+                
+                # GPU에서 CPU로 이동 (GPU 메모리 확보)
+                if hasattr(self.model, 'to'):
+                    self.model.to('cpu')
+                
+                # 모델의 모든 파라미터를 CPU로 명시적으로 이동
+                if hasattr(self.model, 'parameters'):
+                    for param in self.model.parameters():
+                        if param.is_cuda:
+                            param.data = param.data.cpu()
+                
+                # 모델의 모든 버퍼를 CPU로 이동
+                if hasattr(self.model, 'buffers'):
+                    for buffer in self.model.buffers():
+                        if buffer.is_cuda:
+                            buffer.data = buffer.data.cpu()
+                
+                # 모델 삭제
+                del self.model
+                self.model = None
+                
+                # 가비지 컬렉션 실행 (여러 번 실행하여 순환 참조 정리)
+                import gc
+                gc.collect()
+                gc.collect()
+                gc.collect()  # 세 번째로 확실하게 정리
+                
+                # GPU 메모리 정리 (더 강력하게)
+                if self.use_gpu and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()  # 한 번 더
+                    try:
+                        torch.cuda.reset_peak_memory_stats()
+                        # CUDA IPC 메모리 정리 (공유 메모리)
+                        if hasattr(torch.cuda, 'ipc_collect'):
+                            torch.cuda.ipc_collect()
+                    except Exception:
+                        pass
+                    
+                    # 현재 GPU 메모리 사용량 로깅
+                    allocated = torch.cuda.memory_allocated() / 1e9
+                    reserved = torch.cuda.memory_reserved() / 1e9
+                    logger.info(f"✅ Whisper 모델 언로드 완료 (GPU 할당: {allocated:.2f}GB, 예약: {reserved:.2f}GB)")
+                else:
+                    logger.info("✅ Whisper 모델 언로드 완료")
+            except Exception as e:
+                logger.warning(f"Whisper 모델 언로드 중 오류 (무시): {e}")
+                self.model = None
 
 
 class AudioDenoiser:

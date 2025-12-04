@@ -121,21 +121,21 @@ class OpenAITranslator(BaseTranslator):
         )
 
     def _build_system_prompt_subtitle(self, source_full: str, target_full: str) -> str:
-        """애니/영상 자막 번역용 시스템 프롬프트"""
+        """애니/영상 자막 번역용 시스템 프롬프트 (전체 텍스트 번역)"""
         return f"""
 You are a professional subtitle translator specializing in {source_full} → {target_full}.
 You mainly translate anime, movies, dramas, games, and YouTube videos.
 
 General rules:
-- Translate ONLY the utterance marked [CURRENT_LINE].
-- Use [PREVIOUS_LINES] and [NEXT_LINES] only to understand context
-  (who is speaking, who pronouns refer to, running jokes, relationship, tone).
-- 1 input line MUST correspond to 1 output line. Do not merge or split lines.
+- Translate the ENTIRE text while maintaining the original line structure.
+- Understand the full context to ensure consistent translation of characters, relationships, and running themes.
+- Maintain the exact number of lines: 1 input line MUST correspond to 1 output line. Do not merge or split lines.
 - Keep the translation concise and readable as on-screen subtitles.
 - Preserve speaker names, timecodes, brackets, emoji, and sound effects when meaningful.
 - Preserve honorifics or speech level implied in the source (polite, casual, rude, etc.)
+- Ensure consistency in character names, pronouns, and terminology throughout the entire text.
 - Do NOT add any explanations, notes, or commentary.
-- Output ONLY the translated text for [CURRENT_LINE] in {target_full}.
+- Output ONLY the translated text in {target_full}, maintaining the same line structure as the input.
 """.strip()
 
     def _build_user_prompt_basic(
@@ -149,34 +149,24 @@ General rules:
             f"Translate the following text from {source_full} to {target_full}:\n\n{text}"
         )
 
-    def _build_user_prompt_subtitle(
+    def _build_user_prompt_full_text(
         self,
         source_full: str,
         target_full: str,
-        previous_lines: str,
-        current_line: str,
-        next_lines: str,
+        full_text: str,
     ) -> str:
-        """자막 컨텍스트용 유저 프롬프트"""
-        prev_block = previous_lines.strip() if previous_lines.strip() else "(none)"
-        next_block = next_lines.strip() if next_lines.strip() else "(none)"
-
+        """전체 텍스트 번역용 유저 프롬프트"""
         return f"""
 [SOURCE_LANGUAGE]: {source_full}
 [TARGET_LANGUAGE]: {target_full}
 
-[PREVIOUS_LINES]
-{prev_block}
-
-[CURRENT_LINE]
-{current_line}
-
-[NEXT_LINES]
-{next_block}
+[FULL_TEXT_TO_TRANSLATE]
+{full_text}
 
 Task:
-Translate [CURRENT_LINE] into {target_full} as a natural subtitle.
-Return ONLY the translation of [CURRENT_LINE].
+Translate the entire text above from {source_full} to {target_full}.
+Maintain the exact line structure - each line should be translated separately but with full context awareness.
+Return ONLY the translated text, preserving the same number of lines and structure.
 """.strip()
 
     def _call_openai(
@@ -265,59 +255,52 @@ Return ONLY the translation of [CURRENT_LINE].
         target_lang: str,
         temperature: float,
     ) -> TranslationResult:
-        """여러 줄 텍스트 번역 (애니/유튜브 스크립트 가정, 라인 컨텍스트 사용)"""
-        lines = text.strip().split("\n")
-        translated_lines = []
-        total_input_tokens = 0
-        total_output_tokens = 0
-
+        """여러 줄 텍스트 번역 (전체 텍스트를 한 번에 번역하여 문맥 파악)"""
         source_full = self._get_lang_name(source_lang)
         target_full = self._get_lang_name(target_lang)
 
-        logger.info(f"줄 단위 번역 (컨텍스트): {len(lines)}줄")
+        lines = text.strip().split("\n")
+        logger.info(f"전체 텍스트 번역: {len(lines)}줄")
 
-        for idx, line in enumerate(lines):
-            current = line.strip()
+        system_prompt = self._build_system_prompt_subtitle(source_full, target_full)
+        user_prompt = self._build_user_prompt_full_text(
+            source_full,
+            target_full,
+            text,
+        )
 
-            if not current:
-                translated_lines.append("")
-                continue
+        # 전체 텍스트를 한 번에 번역
+        translated_text, input_tokens, output_tokens = self._call_openai(
+            system_prompt, user_prompt, temperature, max_output_tokens=4096
+        )
 
-            # 윗/아랫줄 컨텍스트 구성
-            start_idx = max(0, idx - self.CONTEXT_WINDOW_LINES)
-            end_idx = min(len(lines), idx + self.CONTEXT_WINDOW_LINES + 1)
-
-            previous_lines = "\n".join(lines[start_idx:idx])
-            next_lines = "\n".join(lines[idx + 1:end_idx])
-
-            system_prompt = self._build_system_prompt_subtitle(source_full, target_full)
-            user_prompt = self._build_user_prompt_subtitle(
-                source_full,
-                target_full,
-                previous_lines=previous_lines,
-                current_line=current,
-                next_lines=next_lines,
+        # 줄 수가 일치하는지 확인하고 조정
+        translated_lines = translated_text.strip().split("\n")
+        original_lines = text.strip().split("\n")
+        
+        # 줄 수가 다르면 경고
+        if len(translated_lines) != len(original_lines):
+            logger.warning(
+                f"번역된 줄 수({len(translated_lines)})가 원본 줄 수({len(original_lines)})와 다릅니다. "
+                "원본 줄 구조를 유지하도록 조정합니다."
             )
+            # 원본 줄 수에 맞춰 조정
+            if len(translated_lines) < len(original_lines):
+                # 부족한 줄은 빈 줄로 채움
+                translated_lines.extend([""] * (len(original_lines) - len(translated_lines)))
+            else:
+                # 초과한 줄은 병합
+                translated_lines = translated_lines[:len(original_lines)]
 
-            translated_text, in_tok, out_tok = self._call_openai(
-                system_prompt, user_prompt, temperature, max_output_tokens=512
-            )
-
-            translated_lines.append(translated_text)
-            total_input_tokens += in_tok
-            total_output_tokens += out_tok
-
-            logger.debug(f"  {idx + 1}/{len(lines)} 줄 변역 완료")
-
-        logger.info(f"[OK] 줄 단위 번역 완료: {len(lines)}줄")
+        logger.info(f"[OK] 전체 텍스트 번역 완료: {len(original_lines)}줄")
 
         return TranslationResult(
             original_text=text,
             translated_text="\n".join(translated_lines),
             source_lang=source_lang,
             target_lang=target_lang,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
             model_name=f"{self.model_name}:{self.model}",
         )
 
@@ -331,99 +314,93 @@ Return ONLY the translation of [CURRENT_LINE].
         target_lang: str,
         temperature: float,
     ) -> TranslationResult:
-        """트랜스크립트 번역: [타임스탬프] 화자: 내용  형식을 유지하면서 번역"""
+        """트랜스크립트 번역: [타임스탬프] 화자: 내용  형식을 유지하면서 전체 텍스트를 한 번에 번역"""
         lines = text.strip().split("\n")
-        translated_lines = []
-        total_input_tokens = 0
-        total_output_tokens = 0
-
         # [타임스탬프] Speaker: 내용
         pattern = r'^(\[[\d:\.]+\])?\s*(화자\d+|Speaker\d+|[^:]+):\s*(.+)$'
 
         source_full = self._get_lang_name(source_lang)
         target_full = self._get_lang_name(target_lang)
 
-        logger.info(f"트랜스크립트 번역 (컨텍스트): {len(lines)}줄")
+        logger.info(f"트랜스크립트 전체 번역: {len(lines)}줄")
 
-        for idx, raw_line in enumerate(lines):
-            line = raw_line.strip()
-
-            if not line:
-                translated_lines.append("")
+        # 타임스탬프와 화자 정보 추출
+        transcript_parts = []
+        for line in lines:
+            if not line.strip():
+                transcript_parts.append(("", "", ""))
                 continue
-
-            # 컨텍스트 윈도우 계산
-            start_idx = max(0, idx - self.CONTEXT_WINDOW_LINES)
-            end_idx = min(len(lines), idx + self.CONTEXT_WINDOW_LINES + 1)
-
-            previous_lines = "\n".join(lines[start_idx:idx])
-            next_lines = "\n".join(lines[idx + 1:end_idx])
-
+            
             match = re.match(pattern, line)
-
             if match:
                 timestamp = match.group(1) or ""
                 speaker = match.group(2)
                 content = match.group(3).strip()
-
-                system_prompt = self._build_system_prompt_subtitle(source_full, target_full)
-                user_prompt = self._build_user_prompt_subtitle(
-                    source_full,
-                    target_full,
-                    previous_lines=previous_lines,
-                    current_line=content,
-                    next_lines=next_lines,
-                )
-
-                try:
-                    translated_text, in_tok, out_tok = self._call_openai(
-                        system_prompt, user_prompt, temperature, max_output_tokens=512
-                    )
-
-                    if timestamp:
-                        reconstructed = f"{timestamp} {speaker}: {translated_text}"
-                    else:
-                        reconstructed = f"{speaker}: {translated_text}"
-
-                    translated_lines.append(reconstructed)
-                    total_input_tokens += in_tok
-                    total_output_tokens += out_tok
-
-                    logger.debug(f"  {idx + 1}/{len(lines)} [{speaker}] 번역 완료")
-
-                except Exception as e:
-                    logger.error(f"  {idx + 1}번째 줄 실패: {e}")
-                    translated_lines.append(f"[번역 실패] {line}")
+                transcript_parts.append((timestamp, speaker, content))
             else:
-                # 패턴 불일치: 일반 줄로 취급
-                system_prompt = self._build_system_prompt_subtitle(source_full, target_full)
-                user_prompt = self._build_user_prompt_subtitle(
-                    source_full,
-                    target_full,
-                    previous_lines=previous_lines,
-                    current_line=line,
-                    next_lines=next_lines,
-                )
+                # 패턴 불일치: 전체를 내용으로 취급
+                transcript_parts.append(("", "", line.strip()))
 
-                try:
-                    translated_text, in_tok, out_tok = self._call_openai(
-                        system_prompt, user_prompt, temperature, max_output_tokens=512
-                    )
-                    translated_lines.append(translated_text)
-                    total_input_tokens += in_tok
-                    total_output_tokens += out_tok
-                except Exception as e:
-                    logger.error(f"  {idx + 1}번째 줄 실패(패턴 불일치): {e}")
-                    translated_lines.append(f"[번역 실패] {line}")
+        # 내용만 추출하여 번역
+        content_lines = []
+        for timestamp, speaker, content in transcript_parts:
+            if timestamp and speaker:
+                content_lines.append(content)
+            elif content:
+                content_lines.append(content)
+            else:
+                content_lines.append("")
 
-        logger.info(f"[OK] 트랜스크립트 번역 완료: {len(lines)}줄")
+        content_text = "\n".join(content_lines)
 
-        return TranslationResult(
-            original_text=text,
-            translated_text="\n".join(translated_lines),
-            source_lang=source_lang,
-            target_lang=target_lang,
-            input_tokens=total_input_tokens,
-            output_tokens=total_output_tokens,
-            model_name=f"{self.model_name}:{self.model}",
+        # 전체 내용을 한 번에 번역
+        system_prompt = self._build_system_prompt_subtitle(source_full, target_full)
+        user_prompt = self._build_user_prompt_full_text(
+            source_full,
+            target_full,
+            content_text,
         )
+
+        try:
+            translated_content, input_tokens, output_tokens = self._call_openai(
+                system_prompt, user_prompt, temperature, max_output_tokens=4096
+            )
+
+            # 번역된 내용을 줄 단위로 분리
+            translated_content_lines = translated_content.strip().split("\n")
+            
+            # 원본 구조에 맞춰 재조립
+            translated_lines = []
+            for idx, (timestamp, speaker, _) in enumerate(transcript_parts):
+                if not timestamp and not speaker and not transcript_parts[idx][2]:
+                    # 빈 줄
+                    translated_lines.append("")
+                elif idx < len(translated_content_lines):
+                    translated_text = translated_content_lines[idx].strip()
+                    if timestamp and speaker:
+                        reconstructed = f"{timestamp} {speaker}: {translated_text}"
+                    elif speaker:
+                        reconstructed = f"{speaker}: {translated_text}"
+                    else:
+                        reconstructed = translated_text
+                    translated_lines.append(reconstructed)
+                else:
+                    # 번역 결과가 부족한 경우
+                    logger.warning(f"  {idx + 1}번째 줄: 번역 결과 부족")
+                    translated_lines.append(f"[번역 실패] {lines[idx]}")
+
+            logger.info(f"[OK] 트랜스크립트 번역 완료: {len(lines)}줄")
+
+            return TranslationResult(
+                original_text=text,
+                translated_text="\n".join(translated_lines),
+                source_lang=source_lang,
+                target_lang=target_lang,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model_name=f"{self.model_name}:{self.model}",
+            )
+
+        except Exception as e:
+            logger.error(f"[ERROR] 트랜스크립트 번역 실패: {e}")
+            raise

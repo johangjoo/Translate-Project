@@ -19,7 +19,7 @@ logging.basicConfig(
 
 app = FastAPI(
     title="Audio Translation API",
-    description="Whisper STT + Qwen3-8b Translation 통합 API",
+    description="Whisper STT + Qwen3-14b Translation 통합 API",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -84,10 +84,10 @@ def root():
     return {
         "message": "🎤 → 📝 → 🌐 Audio Translation API",
         "version": "2.0.0",
-        "description": "Whisper STT + Qwen3-8b Translation",
+        "description": "Whisper STT + Qwen3-14b Translation",
         "features": {
             "stt": "Whisper (99개 언어)",
-            "translation": "Qwen3-8b LoRA (ko ↔ ja)",
+            "translation": "Qwen3-14b LoRA (ko ↔ ja)",
             "pipeline": "음성 → 텍스트 → 번역"
         },
         "endpoints": {

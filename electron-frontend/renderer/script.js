@@ -109,6 +109,9 @@ function initializeApp() {
     
     // 초기 SRT 버튼 상태 설정
     updateSrtButtonState();
+    
+    // 초기 최대 화자 수 설정 상태 업데이트
+    updateMaxSpeakersState(isSpeakerDiarizationEnabled());
 }
 
 function setProcessingMode(mode) {
@@ -132,6 +135,45 @@ function toggleOptionButton(button) {
     button.classList.toggle('active');
     const isActive = button.classList.contains('active');
     console.log('버튼 토글:', button.id, '활성화:', isActive);
+    
+    // 화자분리 버튼이 토글되면 최대 화자 수 설정도 연동
+    if (button.id === 'speakerDiarizationBtn') {
+        updateMaxSpeakersState(isActive);
+    }
+}
+
+function updateMaxSpeakersState(speakerDiarizationEnabled) {
+    const maxSpeakersSelect = elements.maxSpeakers;
+    const maxSpeakersLabel = document.querySelector('label[for="maxSpeakers"]');
+    const speakerCountDisplay = elements.speakerCountDisplay;
+    
+    if (speakerDiarizationEnabled) {
+        // 화자분리 활성화 - 최대 화자 수 설정 활성화
+        if (maxSpeakersSelect) {
+            maxSpeakersSelect.disabled = false;
+            maxSpeakersSelect.style.opacity = '1';
+        }
+        if (maxSpeakersLabel) {
+            maxSpeakersLabel.style.opacity = '1';
+            maxSpeakersLabel.style.color = '';
+        }
+        if (speakerCountDisplay) {
+            speakerCountDisplay.style.opacity = '1';
+        }
+    } else {
+        // 화자분리 비활성화 - 최대 화자 수 설정 비활성화
+        if (maxSpeakersSelect) {
+            maxSpeakersSelect.disabled = true;
+            maxSpeakersSelect.style.opacity = '0.5';
+        }
+        if (maxSpeakersLabel) {
+            maxSpeakersLabel.style.opacity = '0.5';
+            maxSpeakersLabel.style.color = '#999';
+        }
+        if (speakerCountDisplay) {
+            speakerCountDisplay.style.opacity = '0.5';
+        }
+    }
 }
 
 function getProcessingMode() {
@@ -182,9 +224,25 @@ function updateSpeakerCountDisplay() {
 function updateModelSettings() {
     const selectedModel = elements.translationModel.value;
     
-    if (selectedModel === 'qwen-local') {
+    // Qwen 로컬 모델들 (API 키 불필요)
+    if (selectedModel === 'qwen-8b-base' || 
+        selectedModel === 'qwen-8b-lora' || 
+        selectedModel === 'qwen-14b-base' || 
+        selectedModel === 'qwen-14b-lora') {
         elements.apiKeyRow.style.display = 'none';
-        elements.modelDescription.textContent = 'Qwen3는 무료 모델이지만 번역 성능이 보통입니다, API키는 필요하지 않습니다.';
+        
+        // 모델별 설명
+        if (selectedModel === 'qwen-8b-base') {
+            elements.modelDescription.textContent = 'Qwen3-8B Base 모델 (무료, API키 불필요) - 기본 모델, 성능 비교용';
+        } else if (selectedModel === 'qwen-8b-lora') {
+            elements.modelDescription.textContent = 'Qwen3-8B LoRA 모델 (무료, API키 불필요) - 10ratio로 파인튜닝된 8B 모델';
+        } else if (selectedModel === 'qwen-14b-base') {
+            elements.modelDescription.textContent = 'Qwen3-14B Base 모델 (무료, API키 불필요) - 기본 14B 모델, 성능 비교용';
+        } else if (selectedModel === 'qwen-14b-lora') {
+            elements.modelDescription.textContent = 'Qwen3-14B LoRA 모델 (무료, API키 불필요) - 10ratio로 파인튜닝된 14B 모델, 기본 추천';
+        } else {
+            elements.modelDescription.textContent = 'Qwen3는 무료 모델이지만 번역 성능이 보통입니다, API키는 필요하지 않습니다.';
+        }
     } else if (selectedModel === 'openai') {
         elements.apiKeyRow.style.display = 'block';
         elements.modelDescription.textContent = 'OpenAI GPT-5.1 모델은 고품질 번역을 제공하지만 유료 API키가 필요합니다.';
@@ -385,9 +443,30 @@ async function sendToSTT(serverUrl) {
         const enableSpeakerDiarization = isSpeakerDiarizationEnabled();
         const enableTimestamps = isTimestampsEnabled();
         
-        // STT 언어 설정 (음성인식만 모드일 때)
-        const sttLanguage = elements.sttLanguage ? elements.sttLanguage.value : null;
-        const language = sttLanguage && sttLanguage !== '' ? sttLanguage : null;
+        // 디버깅: 옵션 상태 로그 출력
+        console.log('🔍 프론트엔드 옵션 상태:');
+        console.log('   enableSpeakerDiarization:', enableSpeakerDiarization);
+        console.log('   enableTimestamps:', enableTimestamps);
+        console.log('   화자분리 버튼 클래스:', elements.speakerDiarizationBtn.className);
+        console.log('   타임스탬프 버튼 클래스:', elements.timestampsBtn.className);
+        
+        // STT 언어 설정
+        // 음성인식만 모드: sttLanguage 사용
+        // 음성인식+번역 모드: sourceLang 사용 (번역할 원본 언어 = STT 언어)
+        const processingMode = getProcessingMode();
+        let language = null;
+        
+        if (processingMode === 'transcribe') {
+            // 음성인식만 모드: sttLanguage 사용
+            const sttLanguage = elements.sttLanguage ? elements.sttLanguage.value : null;
+            language = sttLanguage && sttLanguage !== '' ? sttLanguage : null;
+            console.log('   STT 언어 (음성인식만 모드):', language);
+        } else if (processingMode === 'audio-to-translation') {
+            // 음성인식+번역 모드: sourceLang 사용
+            const sourceLang = elements.sourceLang ? elements.sourceLang.value : null;
+            language = sourceLang && sourceLang !== '' ? sourceLang : null;
+            console.log('   STT 언어 (번역 모드, sourceLang 사용):', language);
+        }
 
         const result = await window.electronAPI.sendToAPI(
             convertedWavPath,
@@ -458,13 +537,19 @@ async function translateSTTResult(serverUrl) {
         const translationSettings = getTranslationSettings();
         
         // API 키 검증 (OpenAI/Gemini 사용 시)
-        if ((translationSettings.model_type === 'openai' || translationSettings.model_type === 'gemini') 
-            && !translationSettings.api_key) {
+        const qwenModels = ['qwen-8b-base', 'qwen-8b-lora', 'qwen-14b-base', 'qwen-14b-lora'];
+        const requiresApiKey = !qwenModels.includes(translationSettings.model_type);
+        
+        if (requiresApiKey && !translationSettings.api_key) {
             throw new Error(`${translationSettings.model_type} 모델 사용 시 API 키가 필요합니다.`);
         }
         
         elements.processingStatus.textContent = '번역 중...';
         console.log(` 번역 시작: ${translationSettings.source_lang} → ${translationSettings.target_lang} (모델: ${translationSettings.model_type})`);
+        
+        // 화자분리 설정 가져오기
+        const enableSpeakerDiarization = isSpeakerDiarizationEnabled();
+        console.log(`   화자분리 설정: ${enableSpeakerDiarization ? 'ON' : 'OFF'}`);
         
         const result = await window.electronAPI.translateText(
             textToTranslate,
@@ -472,7 +557,8 @@ async function translateSTTResult(serverUrl) {
             translationSettings.target_lang,
             serverUrl,
             translationSettings.model_type,
-            translationSettings.api_key
+            translationSettings.api_key,
+            enableSpeakerDiarization
         );
         
         if (result.success) {
@@ -1208,11 +1294,26 @@ function copyToClipboard(elementId) {
 
 // 토스트 알림 표시
 function showToast(message, type = 'info') {
+    // 이전 타이머가 있으면 취소
+    if (showToast.timer) {
+        clearTimeout(showToast.timer);
+    }
+    
     elements.toast.textContent = message;
     elements.toast.className = `toast ${type} show`;
     
-    setTimeout(() => {
+    // 3초 후 사라지기 (애니메이션 포함)
+    showToast.timer = setTimeout(() => {
         elements.toast.classList.remove('show');
+        
+        // 애니메이션 완료 후 완전히 숨기기 (0.3초 후)
+        setTimeout(() => {
+            elements.toast.style.display = 'none';
+            // 다음 표시를 위해 다시 활성화
+            setTimeout(() => {
+                elements.toast.style.display = '';
+            }, 100);
+        }, 300);
     }, 3000);
 }
 

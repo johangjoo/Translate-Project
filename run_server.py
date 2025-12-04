@@ -1,6 +1,6 @@
 """
 Audio Translation API 서버 실행 스크립트 (통합 버전)
-- Whisper STT + Qwen3 번역
+- Whisper STT + Qwen3-14b 번역
 - 하나의 서버로 모든 기능!
 
 사용법:
@@ -8,7 +8,7 @@ Audio Translation API 서버 실행 스크립트 (통합 버전)
 
 주의:
     - 이 파일은 Translate-Project 폴더 (루트)에 위치해야 합니다
-    - qwen3-8b-lora-10ratio 폴더가 있어야 합니다
+    - qwen3-14b-lora-10ratio 폴더가 있어야 합니다
 """
 
 import uvicorn
@@ -59,17 +59,18 @@ def check_environment():
             print(f"   - {file}")
         return False
     
-    # 4. 번역 모델 경로 확인
+    # 4. 번역 모델 경로 확인 (14B 모델)
     print()
-    MODEL_PATH = PROJECT_ROOT / "qwen3-8b-lora-10ratio"
+    MODEL_PATH = PROJECT_ROOT / "qwen3-14b-lora-10ratio"
     
     if not MODEL_PATH.exists():
         print(f"⚠️  경고: 번역 모델을 찾을 수 없습니다!")
         print(f"   예상 경로: {MODEL_PATH}")
         print()
         print(f"   다음을 확인하세요:")
-        print(f"   1. 모델 폴더 이름이 'qwen3-8b-lora-10ratio'인지")
+        print(f"   1. 모델 폴더 이름이 'qwen3-14b-lora-10ratio'인지")
         print(f"   2. 모델 폴더가 프로젝트 루트에 있는지")
+        print(f"   3. api/config.py의 TRANSLATION_BASE_MODEL 경로가 올바른지")
         print()
         print(f"   ⚠️  번역 기능이 작동하지 않을 수 있습니다!")
         print(f"   계속 진행하시겠습니까? (Y/n): ", end="")
@@ -130,7 +131,7 @@ def main():
     """메인 함수"""
     print("\n" + "="*70)
     print("  🎤 → 📝 → 🌐 Audio Translation API Server")
-    print("  Whisper STT + Qwen3-8b Translation")
+    print("  Whisper STT + Qwen3-14b Translation")
     print("="*70)
     
     # 환경 체크

@@ -127,13 +127,36 @@ async def process_audio(
     audio_file: UploadFile = File(..., description="음성 파일"),
     enable_denoise: bool = Form(True, description="노이즈 제거 활성화"),
     enable_transcription: bool = Form(True, description="STT 활성화"),
-    enable_diarization: bool = Form(True, description="화자분리 활성화"),
+    enableSpeakerDiarization: bool = Form(True, description="화자분리 활성화"),
+    enableTimestamps: bool = Form(True, description="타임스탬프 활성화"),
     language: Optional[str] = Form(None, description="언어 코드 (None=자동감지)"),
     create_srt: bool = Form(True, description="SRT 자막 파일 생성"),
     save_outputs: bool = Form(True, description="결과 파일 저장"),
-    max_speakers: int = Form(2, description="최대 화자 수 (1~10)")
+    maxSpeakers: int = Form(2, description="최대 화자 수 (1~10)")
 ):
    
+    # 디버깅: 받은 옵션들 로그 출력
+    print(f"\n{'='*60}")
+    print(f"🔍 받은 옵션들:")
+    print(f"   enableSpeakerDiarization: {enableSpeakerDiarization}")
+    print(f"   enableTimestamps: {enableTimestamps}")
+    print(f"   maxSpeakers: {maxSpeakers}")
+    print(f"   language: {language}")
+    print(f"{'='*60}\n")
+   
+    # 디버깅: 모든 받은 파라미터 출력
+    print(f"\n{'='*60}")
+    print(f"🔍 FastAPI에서 받은 모든 파라미터:")
+    print(f"   audio_file.filename: {audio_file.filename}")
+    print(f"   enable_denoise: {enable_denoise}")
+    print(f"   enable_transcription: {enable_transcription}")
+    print(f"   enableSpeakerDiarization: {enableSpeakerDiarization}")
+    print(f"   enableTimestamps: {enableTimestamps}")
+    print(f"   language: {language}")
+    print(f"   create_srt: {create_srt}")
+    print(f"   save_outputs: {save_outputs}")
+    print(f"   maxSpeakers: {maxSpeakers}")
+    print(f"{'='*60}\n")
    
     pipeline: AudioPipeline = AudioPipeline(
         use_gpu=True,
@@ -142,8 +165,8 @@ async def process_audio(
 
     # 최대 화자 수 설정 (1~10 범위로 클램프)
     try:
-        if max_speakers is not None:
-            clamped = max(1, min(10, int(max_speakers)))
+        if maxSpeakers is not None:
+            clamped = max(1, min(10, int(maxSpeakers)))
             pipeline.max_speakers = clamped
     except Exception:
         # 잘못된 값이 들어와도 기본값(2)을 유지
@@ -157,7 +180,8 @@ async def process_audio(
         "original_filename": audio_file.filename,
         "denoised": enable_denoise,
         "transcribed": enable_transcription,
-        "diarization_enabled": enable_diarization,
+        "diarization_enabled": enableSpeakerDiarization,
+        "timestamps_enabled": enableTimestamps,
     }
     
     try:
@@ -193,15 +217,15 @@ async def process_audio(
             result["denoise_time"] = None
         
         # 2. STT + 화자분리
-        # 2. STT + 화자분리 섹션에서 수정 (224줄 근처)
-
         if enable_transcription:
             transcription_start = time.time()
             
             transcript_result = pipeline.transcribe_uploaded_wav(
                 wav_path=current_file,
                 save_dir=str(work_dir) if save_outputs else None,
-                create_srt=create_srt
+                create_srt=create_srt and enableTimestamps,
+                enable_diarization=enableSpeakerDiarization,
+                enable_timestamps=enableTimestamps
             )
             
             timing["transcription"] = time.time() - transcription_start
@@ -243,8 +267,20 @@ async def process_audio(
         # 사용이 끝난 후 모델을 메모리에서 해제하여 VRAM을 확보
         try:
             pipeline.unload_models()
-        except Exception:
-            pass
+            # 추가 GPU 메모리 정리 (whisper 모델이 완전히 해제되도록)
+            import torch
+            import gc
+            gc.collect()
+            gc.collect()  # 두 번 실행
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                # 메모리 사용량 로깅
+                allocated = torch.cuda.memory_allocated() / 1e9
+                reserved = torch.cuda.memory_reserved() / 1e9
+                print(f"🧹 GPU 메모리 정리 후 - 할당: {allocated:.2f}GB, 예약: {reserved:.2f}GB")
+        except Exception as e:
+            print(f"⚠️ 모델 언로드 중 오류 (무시): {e}")
 
 
 # ===== 2. 텍스트 번역 =====
@@ -254,35 +290,72 @@ async def translate_text_only(
     text: str = Form(..., description="번역할 텍스트"),
     source_lang: str = Form("ko", description="원본 언어 (ko, ja, en)"),
     target_lang: str = Form("ja", description="목표 언어 (ko, ja, en)"),
-    model_type: str = Form("qwen-local", description="번역 모델 타입 (qwen-local, openai, gemini)"),
-    api_key: Optional[str] = Form(None, description="API 키 (openai/gemini 사용 시 필수)")
+    model_type: str = Form("qwen-14b-lora", description="번역 모델 타입 (qwen-8b-base, qwen-8b-lora, qwen-14b-base, qwen-14b-lora, openai, gemini)"),
+    api_key: Optional[str] = Form(None, description="API 키 (openai/gemini 사용 시 필수)"),
+    enable_diarization: str = Form("true", description="화자분리 활성화 (true/false)")
 ):
    
     start_time = time.time()
     
+    # enable_diarization 문자열을 boolean으로 변환
+    enable_diarization_bool = enable_diarization.lower() in ('true', '1', 'yes', 'on')
+    
     try:
         print(f"🌐 텍스트 번역: {source_lang} → {target_lang} (모델: {model_type})")
         print(f"   원문: {text[:100]}...")
+        print(f"   화자분리: {enable_diarization_bool} (원본 문자열: '{enable_diarization}')")
 
         # 모델 타입에 따라 번역기 생성
         translator = None
         
-        if model_type == "qwen-local":
-            # 로컬 Qwen 모델 경로 찾기 (config.py에서 가져오기)
-            from api.config import TRANSLATION_BASE_MODEL
+        # Qwen 로컬 모델들 처리
+        if model_type in ["qwen-8b-base", "qwen-8b-lora", "qwen-14b-base", "qwen-14b-lora"]:
+            from api.config import TRANSLATION_MODELS, TRANSLATION_BASE_MODEL
             from pathlib import Path as _Path
+            
+            # 모델 타입별 경로 매핑
+            model_name_map = {
+                "qwen-8b-base": "qwen-8b-base",
+                "qwen-8b-lora": "qwen-8b-lora",
+                "qwen-14b-base": "qwen-14b-base",
+                "qwen-14b-lora": "qwen-14b-lora",
+            }
+            
+            selected_model_key = model_name_map.get(model_type, "qwen-14b-lora")
+            base_model_path = TRANSLATION_MODELS.get(selected_model_key)
             
             # config.py의 경로 사용
             model_path = None
             project_root = _Path(__file__).resolve().parent.parent
             
-            # 여러 가능한 경로 시도
-            possible_paths = [
-                Path(TRANSLATION_BASE_MODEL) / "qwen3-8b-lora-10ratio",
-                Path(TRANSLATION_BASE_MODEL),
-                project_root / "qwen3-8b-lora-10ratio" / "qwen3-8b-lora-10ratio",
-                project_root / "qwen3-8b-lora-10ratio",
-            ]
+            # 가능한 경로들 확인
+            possible_paths = []
+            
+            if base_model_path:
+                possible_paths.append(Path(base_model_path))
+                possible_paths.append(Path(base_model_path) / base_model_path.name)  # 하위 폴더
+            
+            # 프로젝트 루트에서도 시도 (실제 폴더 구조에 맞춤)
+            if selected_model_key == "qwen-8b-base":
+                possible_paths.extend([
+                    project_root / "models" / "qwen3-8b-base",  # 실제 폴더
+                    project_root / "models" / "qwen3-8b",  # 대체 경로
+                    project_root / "qwen3-8b-base",
+                    project_root / "qwen3-8b",
+                ])
+            elif selected_model_key == "qwen-8b-lora":
+                possible_paths.extend([
+                    project_root / "qwen3-8b-lora-10ratio",
+                ])
+            elif selected_model_key == "qwen-14b-base":
+                possible_paths.extend([
+                    project_root / "qwen3-14b-base",
+                ])
+            elif selected_model_key == "qwen-14b-lora":
+                possible_paths.extend([
+                    project_root / "qwen3-14b-lora-10ratio",
+                    project_root / "qwen3-14b-lora-10ratio" / "qwen3-14b-lora-10ratio",  # 하위 폴더
+                ])
             
             # 경로 찾기
             for path in possible_paths:
@@ -297,12 +370,12 @@ async def translate_text_only(
             # 모델 경로를 찾지 못한 경우
             if model_path is None:
                 error_msg = (
-                    f"Qwen 모델을 찾을 수 없습니다.\n"
+                    f"Qwen 모델 ({selected_model_key})을 찾을 수 없습니다.\n"
                     f"시도한 경로:\n"
                 )
                 for path in possible_paths:
                     error_msg += f"  - {path}\n"
-                error_msg += f"\napi/config.py의 TRANSLATION_BASE_MODEL을 확인하세요."
+                error_msg += f"\n프로젝트 루트 디렉토리에 모델 폴더가 있는지 확인하세요."
                 raise HTTPException(status_code=500, detail=error_msg)
             
             translator = create_translator(
@@ -344,7 +417,7 @@ async def translate_text_only(
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"지원하지 않는 모델 타입: {model_type}. 지원 타입: qwen-local, openai, gemini"
+                detail=f"지원하지 않는 모델 타입: {model_type}. 지원 타입: qwen-8b-base, qwen-8b-lora, qwen-14b-base, qwen-14b-lora, openai, gemini"
             )
         
         # 모델 로드 및 번역 실행
@@ -354,10 +427,27 @@ async def translate_text_only(
                 text=text,
                 source_lang=source_lang,
                 target_lang=target_lang,
+                enable_diarization=enable_diarization_bool
             )
         finally:
-            # 번역이 끝나면 모델을 언로드해서 VRAM을 최대한 비워준다
+            # 번역이 끝나면 모델을 언로드해서 VRAM을 최대한 비워준다 (14B 모델 최적화)
             translator.unload_model()
+            # GPU 메모리 정리 강화 (14B 모델은 메모리 해제가 중요)
+            import torch
+            import gc
+            gc.collect()
+            gc.collect()  # 두 번 실행하여 순환 참조 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                try:
+                    torch.cuda.reset_peak_memory_stats()
+                except Exception:
+                    pass
+                # 메모리 사용량 로깅
+                allocated = torch.cuda.memory_allocated() / 1e9
+                reserved = torch.cuda.memory_reserved() / 1e9
+                print(f"🧹 번역 후 GPU 메모리 정리 완료 - 할당: {allocated:.2f}GB, 예약: {reserved:.2f}GB")
         
         processing_time = time.time() - start_time
         print(f"✅ 번역 완료 ({processing_time:.2f}초)")
@@ -437,7 +527,7 @@ async def get_supported_languages():
             "languages": "99개 언어 지원"
         },
         "translation": {
-            "provider": "Qwen3-8b LoRA",
+            "provider": "Qwen3-14b LoRA",
             "languages": {
                 "ko": "한국어",
                 "ja": "日本語",

@@ -50,22 +50,32 @@ class GeminiTranslator(BaseTranslator):
     # 시스템 프롬프트 (Gemini는 초기화 시점에 넣는 것을 권장)
     # ------------------------------------------------------------------
     def _get_system_instruction(self) -> str:
-        """번역가 페르소나 정의"""
+        """번역가 페르소나 정의 (전체 텍스트 번역)"""
         return """
 You are a professional translator specializing in Korean-Japanese translation.
-Your task is to translate the text in [CURRENT_LINE] from [Source Language] to [Target Language].
+Your task is to translate the ENTIRE text from [Source Language] to [Target Language] while maintaining full context awareness.
 
 CRITICAL RULES:
-1. You MUST translate the text. Never return the original text unchanged.
-2. Translate ONLY the text inside [CURRENT_LINE]. Do not translate [PREVIOUS_LINES] or [NEXT_LINES].
-3. Do not add explanations, notes, greetings, or any additional text.
-4. Maintain the speaker's tone, honorifics, and style inferred from the context.
-5. If the input is a sound effect or proper noun that shouldn't be translated, transliterate it appropriately.
-6. Output ONLY the translated text, nothing else.
+1. You MUST translate the entire text. Never return the original text unchanged.
+2. Translate the FULL TEXT provided, maintaining the exact line structure.
+3. Understand the complete context to ensure consistent translation of characters, relationships, terminology, and running themes.
+4. Maintain the exact number of lines: 1 input line MUST correspond to 1 output line. Do not merge or split lines.
+5. Do not add explanations, notes, greetings, or any additional text.
+6. Maintain the speaker's tone, honorifics, and style throughout the entire text.
+7. Ensure consistency in character names, pronouns, and terminology across all lines.
+8. If the input is a sound effect or proper noun that shouldn't be translated, transliterate it appropriately.
+9. Output ONLY the translated text, nothing else.
 
 Example:
-Input: [CURRENT_LINE] 안녕하세요
-Output: こんにちは
+Input: 
+안녕하세요
+오늘 날씨가 좋네요
+감사합니다
+
+Output:
+こんにちは
+今日は天気がいいですね
+ありがとうございます
 
 If you cannot translate, return "[TRANSLATION_ERROR]" instead of the original text.
 """.strip()
@@ -137,11 +147,8 @@ If you cannot translate, return "[TRANSLATION_ERROR]" instead of the original te
         temperature: float,
         is_transcript: bool
     ) -> TranslationResult:
-        """줄 단위 문맥 번역 (핵심 로직)"""
+        """전체 텍스트를 한 번에 번역 (문맥 파악 강화)"""
         lines = text.strip().split('\n')
-        translated_lines = []
-        total_in_tokens = 0
-        total_out_tokens = 0
 
         # 언어 이름 매핑
         lang_map = {"ko": "Korean", "ja": "Japanese", "en": "English"}
@@ -153,116 +160,153 @@ If you cannot translate, return "[TRANSLATION_ERROR]" instead of the original te
 
         generation_config = genai.types.GenerationConfig(
             temperature=temperature,
-            max_output_tokens=1024,
+            max_output_tokens=4096,
         )
 
-        logger.info(f"Gemini 번역 시작 ({len(lines)}줄) - {s_full} -> {t_full}")
+        logger.info(f"Gemini 전체 텍스트 번역 시작 ({len(lines)}줄) - {s_full} -> {t_full}")
 
-        for i, line in enumerate(lines):
-            current_line = line.strip()
-            if not current_line:
-                translated_lines.append("")
-                continue
-
-            # 1. 문맥 추출 (앞뒤 N줄)
-            start = max(0, i - self.CONTEXT_WINDOW_LINES)
-            end = min(len(lines), i + self.CONTEXT_WINDOW_LINES + 1)
-            prev_lines = "\n".join(lines[start:i])
-            next_lines = "\n".join(lines[i+1:end])
-
-            # 2. 트랜스크립트 파싱
-            speaker_prefix = ""
-            content_to_translate = current_line
-            
-            if is_transcript:
-                match = re.match(pattern, current_line)
+        # 트랜스크립트인 경우 타임스탬프와 화자 정보 추출
+        transcript_parts = []
+        if is_transcript:
+            for line in lines:
+                if not line.strip():
+                    transcript_parts.append(("", "", ""))
+                    continue
+                
+                match = re.match(pattern, line)
                 if match:
                     timestamp = match.group(1) or ""
                     speaker = match.group(2)
-                    content = match.group(3)
-                    # 번역할 내용은 content, 앞부분은 나중에 붙임
-                    speaker_prefix = f"{timestamp} {speaker}: " if timestamp else f"{speaker}: "
-                    content_to_translate = content.strip()
+                    content = match.group(3).strip()
+                    transcript_parts.append((timestamp, speaker, content))
+                else:
+                    transcript_parts.append(("", "", line.strip()))
+            
+            # 내용만 추출
+            content_lines = []
+            for timestamp, speaker, content in transcript_parts:
+                if timestamp and speaker:
+                    content_lines.append(content)
+                elif content:
+                    content_lines.append(content)
+                else:
+                    content_lines.append("")
+            content_text = "\n".join(content_lines)
+        else:
+            content_text = text
 
-            # 3. Gemini 전용 유저 프롬프트 구성
-            user_prompt = f"""
+        # 전체 텍스트를 한 번에 번역
+        user_prompt = f"""
 [Source Language]: {s_full}
 [Target Language]: {t_full}
 
-[PREVIOUS_LINES]
-{prev_lines if prev_lines else "(None)"}
+[FULL_TEXT_TO_TRANSLATE]
+{content_text}
 
-[CURRENT_LINE]
-{content_to_translate}
-
-[NEXT_LINES]
-{next_lines if next_lines else "(None)"}
+Task:
+Translate the entire text above from {s_full} to {t_full}.
+Maintain the exact line structure - each line should be translated separately but with full context awareness.
+Ensure consistency in terminology, character names, and style throughout the entire text.
+Return ONLY the translated text, preserving the same number of lines and structure.
 """
-            try:
-                # API 호출
-                response = self.client.generate_content(
-                    user_prompt,
-                    generation_config=generation_config
-                )
-                
-                # 결과 처리 - Gemini 3 Pro Preview 호환성 개선
-                trans_text = None
-                
-                # 응답이 있는지 확인
-                if hasattr(response, 'text') and response.text:
-                    trans_text = response.text.strip()
-                elif hasattr(response, 'candidates') and response.candidates:
-                    # candidates에서 텍스트 추출
-                    candidate = response.candidates[0]
-                    if hasattr(candidate, 'content') and candidate.content:
-                        if hasattr(candidate.content, 'parts'):
-                            # parts에서 텍스트 추출
-                            text_parts = []
-                            for part in candidate.content.parts:
-                                if hasattr(part, 'text') and part.text:
-                                    text_parts.append(part.text)
-                            if text_parts:
-                                trans_text = " ".join(text_parts).strip()
-                
-                # 번역 결과가 없거나 원문과 동일한 경우
-                if not trans_text or trans_text == content_to_translate:
-                    logger.warning(f"  {i+1}번째 줄: 번역 결과가 없거나 원문과 동일함. 원문: {content_to_translate[:50]}...")
-                    # 원문을 그대로 사용하지 않고 재시도 또는 에러 표시
-                    trans_text = f"[번역 실패: {content_to_translate}]"
-                
-                # 메타데이터에서 토큰 수 가져오기
-                if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                    total_in_tokens += getattr(response.usage_metadata, 'prompt_token_count', 0)
-                    total_out_tokens += getattr(response.usage_metadata, 'candidates_token_count', 0)
 
-                # 트랜스크립트 재조립
-                if is_transcript and speaker_prefix:
-                    translated_lines.append(f"{speaker_prefix}{trans_text}")
-                else:
-                    translated_lines.append(trans_text)
+        try:
+            # API 호출
+            response = self.client.generate_content(
+                user_prompt,
+                generation_config=generation_config
+            )
+            
+            # 결과 처리
+            trans_text = None
+            
+            if hasattr(response, 'text') and response.text:
+                trans_text = response.text.strip()
+            elif hasattr(response, 'candidates') and response.candidates:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts'):
+                        text_parts = []
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text_parts.append(part.text)
+                        if text_parts:
+                            trans_text = " ".join(text_parts).strip()
+            
+            if not trans_text:
+                logger.error("[ERROR] 번역 결과가 없습니다.")
+                raise RuntimeError("Gemini API에서 번역 결과를 받지 못했습니다.")
+            
+            # 번역된 내용을 줄 단위로 분리
+            translated_content_lines = trans_text.strip().split("\n")
+            
+            # 트랜스크립트인 경우 재조립
+            if is_transcript:
+                translated_lines = []
+                for idx, (timestamp, speaker, _) in enumerate(transcript_parts):
+                    if not timestamp and not speaker and not transcript_parts[idx][2]:
+                        translated_lines.append("")
+                    elif idx < len(translated_content_lines):
+                        translated_text_line = translated_content_lines[idx].strip()
+                        if timestamp and speaker:
+                            reconstructed = f"{timestamp} {speaker}: {translated_text_line}"
+                        elif speaker:
+                            reconstructed = f"{speaker}: {translated_text_line}"
+                        else:
+                            reconstructed = translated_text_line
+                        translated_lines.append(reconstructed)
+                    else:
+                        logger.warning(f"  {idx + 1}번째 줄: 번역 결과 부족")
+                        translated_lines.append(f"[번역 실패] {lines[idx]}")
                 
-                logger.debug(f"  {i+1}/{len(lines)} 완료: {content_to_translate[:30]}... -> {trans_text[:30]}...")
+                # 줄 수 확인
+                if len(translated_lines) != len(lines):
+                    logger.warning(
+                        f"번역된 줄 수({len(translated_lines)})가 원본 줄 수({len(lines)})와 다릅니다."
+                    )
+                    if len(translated_lines) < len(lines):
+                        translated_lines.extend([""] * (len(lines) - len(translated_lines)))
+                    else:
+                        translated_lines = translated_lines[:len(lines)]
+            else:
+                translated_lines = translated_content_lines
+                # 줄 수 확인
+                if len(translated_lines) != len(lines):
+                    logger.warning(
+                        f"번역된 줄 수({len(translated_lines)})가 원본 줄 수({len(lines)})와 다릅니다."
+                    )
+                    if len(translated_lines) < len(lines):
+                        translated_lines.extend([""] * (len(lines) - len(translated_lines)))
+                    else:
+                        translated_lines = translated_lines[:len(lines)]
+            
+            # 토큰 수 가져오기
+            input_tokens = 0
+            output_tokens = 0
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
 
-            except Exception as e:
-                error_str = str(e)
-                logger.error(f"  {i+1}번째 줄 실패: {error_str}")
-                logger.error(f"    원문: {content_to_translate[:100]}")
-                
-                # 쿼터 초과 에러인 경우 명확한 메시지
-                if "429" in error_str or "quota" in error_str.lower() or "Quota exceeded" in error_str:
-                    error_msg = "[ERROR] Gemini API 쿼터 초과: gemini-3-pro-preview는 무료 티어에서 사용할 수 없습니다. gemini-1.5-flash를 사용하세요."
-                    logger.error(error_msg)
-                    translated_lines.append(f"[번역 실패: API 쿼터 초과 - gemini-3-pro-preview는 무료 티어 미지원]")
-                else:
-                    # 실패 시 에러 표시 (원문 그대로 반환하지 않음)
-                    translated_lines.append(f"[번역 오류: {error_str[:50]}]")
+            logger.info(f"[OK] 전체 텍스트 번역 완료: {len(lines)}줄")
 
-        return TranslationResult(
-            original_text=text,
-            translated_text="\n".join(translated_lines),
-            source_lang=source_lang,
-            target_lang=target_lang,
-            input_tokens=total_in_tokens,
-            output_tokens=total_out_tokens,
-            model_name=f"gemini:{self.model_name_str}"
-        )
+            return TranslationResult(
+                original_text=text,
+                translated_text="\n".join(translated_lines),
+                source_lang=source_lang,
+                target_lang=target_lang,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model_name=f"gemini:{self.model_name_str}"
+            )
+
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"[ERROR] Gemini 번역 실패: {error_str}")
+            
+            # 쿼터 초과 에러인 경우 명확한 메시지
+            if "429" in error_str or "quota" in error_str.lower() or "Quota exceeded" in error_str:
+                error_msg = "[ERROR] Gemini API 쿼터 초과: gemini-3-pro-preview는 무료 티어에서 사용할 수 없습니다. gemini-1.5-flash를 사용하세요."
+                logger.error(error_msg)
+                raise RuntimeError(error_msg) from e
+            else:
+                raise

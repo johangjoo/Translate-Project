@@ -371,13 +371,33 @@ ipcMain.handle('send-to-api', async (event, filePath, apiEndpoint, serverUrl = '
     if (apiEndpoint === 'audio/process') {
       formData.append('enable_denoise', 'false');
       formData.append('enable_transcription', 'true');
-      formData.append('enable_diarization', 'true');
+      
+      // 화자분리 옵션 (프론트엔드에서 전달받은 값 사용)
+      const enableSpeakerDiarization = options?.enableSpeakerDiarization !== false; // 기본값: true
+      formData.append('enableSpeakerDiarization', String(enableSpeakerDiarization));
+      
+      // 타임스탬프 옵션 (프론트엔드에서 전달받은 값 사용)
+      const enableTimestamps = options?.enableTimestamps !== false; // 기본값: true
+      formData.append('enableTimestamps', String(enableTimestamps));
+      
       formData.append('save_outputs', 'false');
 
       // 최대 화자 수 전달 (선택 사항)
       if (options && typeof options.maxSpeakers === 'number') {
-        formData.append('max_speakers', String(options.maxSpeakers));
+        formData.append('maxSpeakers', String(options.maxSpeakers));
       }
+      
+      // 언어 설정 (선택 사항)
+      if (options && options.language) {
+        formData.append('language', String(options.language));
+      }
+      
+      // 디버깅: 전송되는 옵션 로그
+      console.log('📤 전송되는 API 옵션:');
+      console.log('   enableSpeakerDiarization:', enableSpeakerDiarization);
+      console.log('   enableTimestamps:', enableTimestamps);
+      console.log('   maxSpeakers:', options?.maxSpeakers);
+      console.log('   language:', options?.language);
     }
 
     // ✅ API 요청
@@ -423,17 +443,22 @@ ipcMain.handle('check-server-status', async (event, serverUrl = 'http://127.0.0.
 });
 
 // ✅ 텍스트 번역
-ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, serverUrl = 'http://127.0.0.1:8000', modelType = 'qwen-local', apiKey = null) => {
+ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, serverUrl = 'http://127.0.0.1:8000', modelType = 'qwen-local', apiKey = null, enableDiarization = false) => {
   try {
-    console.log(`🌐 텍스트 번역 요청: ${sourceLang} → ${targetLang} (모델: ${modelType})`);
+    console.log(`🌐 텍스트 번역 요청: ${sourceLang} → ${targetLang} (모델: ${modelType}, 화자분리: ${enableDiarization ? 'ON' : 'OFF'})`);
+    console.log(`[DEBUG] main.js에서 받은 enableDiarization: ${enableDiarization} (type: ${typeof enableDiarization})`);
     
     // Form 데이터로 전송
     const URLSearchParams = require('url').URLSearchParams;
+    const enableDiarizationStr = String(enableDiarization);
+    console.log(`[DEBUG] 전송할 enable_diarization 문자열: '${enableDiarizationStr}'`);
+    
     const params = new URLSearchParams({
       text: text,
       source_lang: sourceLang,
       target_lang: targetLang,
-      model_type: modelType
+      model_type: modelType,
+      enable_diarization: enableDiarizationStr
     });
     
     // API 키가 있으면 추가
@@ -447,7 +472,7 @@ ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, ser
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 60000
+        timeout: 600000 // 10분 (큰 텍스트 번역 허용)
       }
     );
 
@@ -459,9 +484,16 @@ ipcMain.handle('translate-text', async (event, text, sourceLang, targetLang, ser
       console.error('   응답 상태:', error.response.status);
       console.error('   응답 데이터:', error.response.data);
     }
+    
+    // 타임아웃 에러 메시지 개선
+    let errorMessage = error.response?.data?.detail || error.message;
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      errorMessage = '번역 처리 시간이 오래 걸리고 있습니다. 잠시 후 다시 시도해주세요.';
+    }
+    
     return { 
       success: false, 
-      error: error.response?.data?.detail || error.message 
+      error: errorMessage
     };
   }
 });

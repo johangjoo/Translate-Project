@@ -1,12 +1,11 @@
+
+#모델 관리리
 qwen3-8b-lora-10ratio/
+qwen3-14b-lora-10ratio/
+qwen3-14b-base/
 qwen3-8b-translation-lora/
 soundToText/
 models/
-script_output/
-audio_output/
-audio_input/
-audio_out/
-
 # 데이터 폴더
 inputs/
 outputs/
@@ -19,10 +18,14 @@ training_data.jsonl
 
 # 스크립트 (필요 없는 것들)
 TranslateScript/
+test/
+test_context_translation.py
 model_download.py
 tstt.py
+valida.py
 
 # ffmpeg파일
+electron-frontend/temp/
 electron-frontend/ffmpeg/
 electron-frontend/node_modules/
 # 압축 파일

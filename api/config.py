@@ -25,8 +25,14 @@ SUPPORTED_AUDIO_FORMATS = [
     '.wav', '.mp3', '.m4a', '.flac', 
     '.ogg', '.aac', '.wma', '.opus'
 ]
-# 모델 경로
-TRANSLATION_BASE_MODEL = BASE_DIR / "qwen3-8b-lora-10ratio"
+# 모델 경로 설정
+TRANSLATION_BASE_MODEL = BASE_DIR / "qwen3-14b-lora-10ratio"  # 기본값 (14B LoRA)
+TRANSLATION_MODELS = {
+    "qwen-8b-base": BASE_DIR / "models" / "qwen3-8b-base",  # 실제 폴더명에 맞춤
+    "qwen-8b-lora": BASE_DIR / "qwen3-8b-lora-10ratio",
+    "qwen-14b-base": BASE_DIR / "qwen3-14b-base",
+    "qwen-14b-lora": BASE_DIR / "qwen3-14b-lora-10ratio",  # 기본값
+}
 
 # Whisper 모델 설정
 WHISPER_MODEL_SIZE = "large-v3"  # tiny, base, small, medium, large, large-v3
