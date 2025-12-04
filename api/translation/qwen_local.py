@@ -198,17 +198,17 @@ class QwenLocalTranslator(BaseTranslator):
             else:
                 max_new_tokens = min(max_new_tokens, self.MAX_OUTPUT_CAP)
             
-            # 메모리 체크 (14B 모델 기준)
-            if self.use_gpu:
-                allocated = torch.cuda.memory_allocated() / 1e9
-                reserved = torch.cuda.memory_reserved() / 1e9
-                total = torch.cuda.get_device_properties(0).total_memory / 1e9
-                free_gb = total - allocated
-                logger.info(f"VRAM 상태 - 할당: {allocated:.2f}GB, 예약: {reserved:.2f}GB, 여유: {free_gb:.2f}GB / {total:.2f}GB")
-                
-                # 14B 모델(4bit)은 약 8-10GB 필요하므로 3GB 이하면 경고
-                if free_gb < 3.0:
-                    logger.warning("[WARNING] VRAM 부족 경고! (14B 모델은 최소 8-10GB 필요)")
+            # 메모리 체크 로직은 필요 시 디버깅용으로만 사용 (로그 노이즈 제거를 위해 기본 비활성화)
+            # if self.use_gpu:
+            #     allocated = torch.cuda.memory_allocated() / 1e9
+            #     reserved = torch.cuda.memory_reserved() / 1e9
+            #     total = torch.cuda.get_device_properties(0).total_memory / 1e9
+            #     free_gb = total - allocated
+            #     logger.info(f"VRAM 상태 - 할당: {allocated:.2f}GB, 예약: {reserved:.2f}GB, 여유: {free_gb:.2f}GB / {total:.2f}GB")
+            #     
+            #     # 14B 모델(4bit)은 약 8-10GB 필요하므로 3GB 이하면 경고
+            #     if free_gb < 3.0:
+            #         logger.warning("[WARNING] VRAM 부족 경고! (14B 모델은 최소 8-10GB 필요)")
             
             # 생성
             with torch.no_grad():

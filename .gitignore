@@ -4,7 +4,6 @@ qwen3-8b-lora-10ratio/
 qwen3-14b-lora-10ratio/
 qwen3-14b-base/
 qwen3-8b-translation-lora/
-soundToText/
 models/
 # 데이터 폴더
 inputs/
@@ -37,6 +36,7 @@ electron-frontend/node_modules/
 train.jsonl.backup_*
 validation.jsonl.backup_*
 training_data.jsonl.backup_*
+train.jsonl.bak
 
 # Python 캐시
 __pycache__/

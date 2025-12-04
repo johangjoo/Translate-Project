@@ -43,7 +43,42 @@ class BasicHealthResponse(BaseModel):
     translator_device: str
 
 
-# ===== 유틸리티 함수 =====
+# ===== 유틸리티 / 언어 매핑 함수 =====
+
+def normalize_language(lang: Optional[str]) -> Optional[str]:
+    """
+    프론트엔드에서 넘어오는 언어 선택값을 Whisper용 언어 코드로 정규화.
+    - 한/영/일/자동감지 UI를 가정하고 다양한 표현을 ko/ja/en/None 으로 매핑한다.
+    """
+    if lang is None:
+        return None
+
+    value = str(lang).strip().lower()
+    if not value:
+        return None
+
+    # "자동", "auto" 등은 자동 감지 → None
+    auto_values = {"auto", "자동", "auto-detect", "auto_detect", "autodetect"}
+    if value in auto_values:
+        return None
+
+    # 한국어
+    ko_values = {"ko", "kr", "korean", "한국어", "한", "kor"}
+    if value in ko_values:
+        return "ko"
+
+    # 일본어
+    ja_values = {"ja", "jp", "japanese", "일본어", "일", "jpn"}
+    if value in ja_values:
+        return "ja"
+
+    # 영어
+    en_values = {"en", "eng", "english", "영어", "영"}
+    if value in en_values:
+        return "en"
+
+    # 그 외 값은 안전하게 자동 감지로 처리
+    return None
 
 def save_upload_file(upload_file: UploadFile, max_size_mb: int = 200) -> str:
     """업로드 파일 저장"""
@@ -158,9 +193,12 @@ async def process_audio(
     print(f"   maxSpeakers: {maxSpeakers}")
     print(f"{'='*60}\n")
    
+    # 프론트에서 넘어온 언어 선택값을 ko/ja/en/None 으로 정규화
+    normalized_lang = normalize_language(language)
+
     pipeline: AudioPipeline = AudioPipeline(
         use_gpu=True,
-        target_language=language or None,
+        target_language=normalized_lang,
     )
 
     # 최대 화자 수 설정 (1~10 범위로 클램프)
@@ -238,7 +276,11 @@ async def process_audio(
             else:
                 result["text"] = transcript_result["text"]  # fallback
             
-            result["detected_language"] = language or "auto"
+            # 프론트 선택값 기준으로 응답용 언어 라벨 설정
+            if normalized_lang is None:
+                result["detected_language"] = "auto"
+            else:
+                result["detected_language"] = normalized_lang
             result["transcription_time"] = round(timing["transcription"], 2)
             
         else:
