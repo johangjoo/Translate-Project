@@ -911,10 +911,16 @@ function cleanTranslatedText(translatedText) {
     // 화자 정보 제거 (화자A:, 화자B: 등)
     cleaned = cleaned.replace(/화자[가-힣A-Z]:\s*/g, '');
     
-    // 여러 공백을 하나로
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    // 줄바꿈은 유지하고, 연속된 공백만 하나로 정리
+    // 줄바꿈(\n)을 임시 마커로 보호
+    cleaned = cleaned.replace(/\n/g, '\u0001'); // 줄바꿈을 임시 마커로
+    cleaned = cleaned.replace(/\s+/g, ' '); // 연속된 공백을 하나로
+    cleaned = cleaned.replace(/\u0001/g, '\n'); // 임시 마커를 다시 줄바꿈으로
     
-    return cleaned;
+    // 각 줄의 앞뒤 공백 제거
+    cleaned = cleaned.split('\n').map(line => line.trim()).join('\n');
+    
+    return cleaned.trim();
 }
 
 // 원본 세그먼트의 텍스트 길이 비율에 따라 번역 텍스트 분할
@@ -929,11 +935,23 @@ function splitTranslatedTextByOriginalSegments(translatedText, originalSegments)
     
     const trimmedText = translatedText.trim();
     
+    // 번역 텍스트를 줄바꿈으로 분리
+    const translatedLines = trimmedText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
     // 원본 세그먼트의 텍스트 길이 계산 (화자 정보 제거)
     const originalTexts = originalSegments.map(seg => {
         const text = (seg.text || seg.transcript || '').trim();
         return text.replace(/^[^:]+:\s*/, ''); // 화자 정보 제거
     });
+    
+    // 줄 수가 같으면 1:1 매칭 (가장 정확함)
+    if (translatedLines.length === originalSegments.length) {
+        console.log('✅ 줄 수 일치: 1:1 매칭 사용');
+        return translatedLines;
+    }
+    
+    // 줄 수가 다르면 비율 계산 사용
+    console.log(`⚠️ 줄 수 불일치: 원본 ${originalSegments.length}줄, 번역 ${translatedLines.length}줄 - 비율 계산 사용`);
     
     const originalLengths = originalTexts.map(text => text.length);
     const totalOriginalLength = originalLengths.reduce((sum, len) => sum + len, 0);
@@ -1083,11 +1101,23 @@ function splitTranslatedTextByOriginalLines(translatedText, originalLines) {
     
     const trimmedText = translatedText.trim();
     
+    // 번역 텍스트를 줄바꿈으로 분리
+    const translatedLines = trimmedText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
     // 원본 라인의 텍스트 길이 계산 (화자 정보 제거)
     const originalTexts = originalLines.map(line => {
         const text = line.content || '';
         return text.replace(/^[^:]+:\s*/, ''); // 화자 정보 제거
     });
+    
+    // 줄 수가 같으면 1:1 매칭 (가장 정확함)
+    if (translatedLines.length === originalLines.length) {
+        console.log('✅ 줄 수 일치: 1:1 매칭 사용 (simple_text 형식)');
+        return translatedLines;
+    }
+    
+    // 줄 수가 다르면 비율 계산 사용
+    console.log(`⚠️ 줄 수 불일치: 원본 ${originalLines.length}줄, 번역 ${translatedLines.length}줄 - 비율 계산 사용 (simple_text 형식)`);
     
     const originalLengths = originalTexts.map(text => text.length);
     const totalOriginalLength = originalLengths.reduce((sum, len) => sum + len, 0);

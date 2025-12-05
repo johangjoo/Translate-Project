@@ -192,12 +192,15 @@ class AudioPipeline:
         """
         매우 단순한 에너지 기반 VAD.
         - 입력: 단일 채널 waveform (1, N)
-        - 출력: 앞/뒤 무음이 잘려진 waveform (내부 긴 무음은 유지)
+        - 출력: (앞/뒤 무음이 잘려진 waveform, 잘린 앞부분 시간(초))
 
         Args:
             waveform: 1채널 오디오 텐서 (1, N)
             sample_rate: 샘플링 레이트 (Hz)
             energy_threshold: 최대 에너지 대비 말소리로 볼 최소 비율 (0.0 ~ 1.0)
+        
+        Returns:
+            tuple: (trimmed_waveform, trim_offset_seconds)
         """
         try:
             # 모노 보장
@@ -206,7 +209,7 @@ class AudioPipeline:
 
             # 아주 짧은 경우는 그대로 사용
             if waveform.size(-1) < sample_rate * 0.3:
-                return waveform
+                return waveform, 0.0
 
             window_size = int(sample_rate * 0.03)  # 30 ms
             hop_size = max(1, window_size // 2)
@@ -223,33 +226,36 @@ class AudioPipeline:
                 energies.append(energy.item())
 
             if not energies:
-                return waveform
+                return waveform, 0.0
 
             energies_tensor = torch.tensor(energies)
             max_energy = float(energies_tensor.max())
             if max_energy <= 0:
-                return waveform
+                return waveform, 0.0
 
             threshold = max_energy * float(energy_threshold)
             speech_indices = (energies_tensor > threshold).nonzero(as_tuple=False).flatten()
             if speech_indices.numel() == 0:
                 # 전부 무음으로 판단되면 원본 유지
-                return waveform
+                return waveform, 0.0
 
             first_idx = int(speech_indices[0])
             last_idx = int(speech_indices[-1])
             start_sample = max(0, first_idx * hop_size)
             end_sample = min(num_samples, (last_idx + 1) * hop_size)
 
+            # 잘린 앞부분 시간 계산
+            trim_offset_seconds = start_sample / float(sample_rate)
+
             trimmed = waveform[..., start_sample:end_sample]
             logger.info(
                 f"VAD 트리밍: {num_samples / sample_rate:.2f}s → "
-                f"{trimmed.size(-1) / sample_rate:.2f}s"
+                f"{trimmed.size(-1) / sample_rate:.2f}s (앞부분 {trim_offset_seconds:.2f}초 제거)"
             )
-            return trimmed
+            return trimmed, trim_offset_seconds
         except Exception as e:
             logger.warning(f"VAD 처리 중 오류, 원본 waveform 사용: {e}")
-            return waveform
+            return waveform, 0.0
 
     def _load_whisper(self, model_size="large-v3"):
         """Whisper 모델 로드"""
@@ -298,6 +304,9 @@ class AudioPipeline:
         Args:
             input_file (str): 입력 파일 경로
             output_file (str): 출력 파일 경로
+        
+        Returns:
+            float: VAD로 잘린 앞부분 시간(초). VAD가 비활성화되었거나 잘리지 않았으면 0.0
         """
         try:
             logger.info(f"노이즈 제거 시작: {input_file}")
@@ -331,10 +340,11 @@ class AudioPipeline:
                 enhanced_waveform = enhanced_waveform.squeeze(0).cpu()
 
             # VAD 기반 앞/뒤 무음 제거 (옵션)
+            trim_offset = 0.0
             if getattr(self, "enable_vad", False):
                 try:
                     logger.info("VAD 기반 무음 구간 트리밍 수행")
-                    enhanced_waveform = self._apply_vad(enhanced_waveform, sample_rate)
+                    enhanced_waveform, trim_offset = self._apply_vad(enhanced_waveform, sample_rate)
                 except Exception as e:
                     logger.warning(f"VAD 적용 실패, 원본 waveform 사용: {e}")
 
@@ -342,12 +352,16 @@ class AudioPipeline:
             torchaudio.save(output_file, enhanced_waveform, sample_rate)
             
             logger.info(f"노이즈 제거 완료: {output_file}")
+            if trim_offset > 0:
+                logger.info(f"VAD로 잘린 앞부분: {trim_offset:.2f}초")
+            
+            return trim_offset
             
         except Exception as e:
             logger.error(f"노이즈 제거 실패 ({input_file}): {e}")
             raise
     
-    def transcribe_audio(self, audio_file, output_text_file, srt_file=None, diarization_audio_file=None, enable_timestamps=True):
+    def transcribe_audio(self, audio_file, output_text_file, srt_file=None, diarization_audio_file=None, enable_timestamps=True, vad_offset=0.0):
         """
         오디오 파일을 텍스트로 변환 (STT)
         
@@ -356,6 +370,8 @@ class AudioPipeline:
             output_text_file (str): 출력 텍스트 파일 경로
             srt_file (str, optional): SRT 자막 파일 경로
             diarization_audio_file (str, optional): 화자분리용 오디오 파일 경로
+            enable_timestamps (bool): 타임스탬프 활성화 여부
+            vad_offset (float): VAD로 잘린 앞부분 시간(초). 타임스탬프에 더해짐
         """
         try:
             logger.info(f"STT 처리 시작: {audio_file}")
@@ -488,6 +504,23 @@ class AudioPipeline:
                     "duration": total_duration or (offset_sec if offset_sec > 0 else None),
                 }
 
+            # VAD offset을 모든 타임스탬프에 적용
+            if vad_offset > 0.0 and "segments" in result:
+                logger.info(f"VAD offset 적용: 모든 타임스탬프에 {vad_offset:.2f}초 추가")
+                for segment in result["segments"]:
+                    segment["start"] = float(segment.get("start", 0.0)) + vad_offset
+                    segment["end"] = float(segment.get("end", 0.0)) + vad_offset
+                    
+                    # 단어별 타임스탬프도 조정
+                    if "words" in segment:
+                        for word_info in segment["words"]:
+                            word_info["start"] = float(word_info.get("start", 0.0)) + vad_offset
+                            word_info["end"] = float(word_info.get("end", 0.0)) + vad_offset
+                
+                # duration도 조정
+                if "duration" in result and result["duration"]:
+                    result["duration"] = float(result["duration"]) + vad_offset
+            
             # 결과 텍스트 추출
             transcribed_text = result["text"].strip()
             
@@ -1597,7 +1630,7 @@ class AudioPipeline:
             
             # 1단계: 노이즈 제거
             denoised_file = self.audio_out_dir / f"{file_stem}_denoised.wav"
-            self.denoise_audio(audio_file, str(denoised_file))
+            vad_offset = self.denoise_audio(audio_file, str(denoised_file))
             
             # 2단계: audio_output으로 복사 (파이프라인 구조 유지)
             output_audio_file = self.audio_output_dir / f"{file_stem}_denoised.wav"
@@ -1611,7 +1644,8 @@ class AudioPipeline:
                 str(output_audio_file),
                 str(transcript_file),
                 str(srt_file),
-                diarization_audio_file=str(audio_file)
+                diarization_audio_file=str(audio_file),
+                vad_offset=vad_offset
             )
             
             logger.info(f"파일 처리 완료: {input_file}")
@@ -1655,7 +1689,7 @@ class AudioPipeline:
             # 1단계: 노이즈 제거 (기존 로직 재사용)
             denoised_file = base_dir / f"{file_stem}_denoised.wav"
             logger.info(f"[backend] 업로드 WAV 노이즈 제거 시작: {wav_path} -> {denoised_file}")
-            self.denoise_audio(str(wav_path), str(denoised_file))
+            vad_offset = self.denoise_audio(str(wav_path), str(denoised_file))
 
             # 2단계: STT + 화자분리 (STT는 denoised, 화자분리는 원본 wav 사용)
             transcript_file = base_dir / f"{file_stem}_transcript.txt"
@@ -1667,7 +1701,8 @@ class AudioPipeline:
                 str(transcript_file),
                 str(srt_file) if srt_file else None,
                 diarization_audio_file=str(wav_path) if enable_diarization else None,
-                enable_timestamps=enable_timestamps
+                enable_timestamps=enable_timestamps,
+                vad_offset=vad_offset
             )
 
             # transcribe_audio 내부에서 simple 텍스트도 생성됨
